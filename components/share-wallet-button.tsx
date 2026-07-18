@@ -33,7 +33,7 @@ export function ShareWalletButton({ transactions, wallet }: ShareWalletButtonPro
     event.currentTarget.closest("details")?.removeAttribute("open");
 
     try {
-      const blob = createWalletShareImage(wallet, transactions);
+      const blob = await createWalletShareImage(wallet, transactions);
       const file = new File([blob], walletShareFilename(wallet.name), { type: "image/png" });
       const canShareFile = typeof navigator.share === "function"
         && typeof navigator.canShare === "function"

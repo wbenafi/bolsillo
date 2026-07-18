@@ -3,9 +3,11 @@
 import { ClerkProvider, useAuth } from "@clerk/nextjs";
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { KeyRound, PiggyBank } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { useMemo } from "react";
 import { Toaster } from "sonner";
+
+import { BrandIcon } from "@/components/brand-icon";
 
 type AppProvidersProps = Readonly<{
   children: React.ReactNode;
@@ -17,7 +19,7 @@ function ConfigurationNotice() {
   return (
     <main className="setup-page">
       <section className="setup-card">
-        <span className="brand-mark" aria-hidden="true"><PiggyBank size={26} /></span>
+        <BrandIcon className="setup-brand-icon" priority />
         <p className="eyebrow"><KeyRound size={15} /> Configuración pendiente</p>
         <h1>Bolsillo ya está tomando forma</h1>
         <p>

@@ -1,5 +1,6 @@
 import { formatTransactionDate } from "./date";
 import { formatMoney, getTransactionSign } from "./money";
+import { brandColors } from "./brand";
 import type { WalletSummary, WalletTransaction } from "../types/domain";
 
 const IMAGE_WIDTH = 1080;
@@ -59,7 +60,7 @@ function drawFittedText(
   y: number,
   options: TextOptions,
 ) {
-  const { align = "left", color = "#202522", maxWidth, minSize = 16, weight = 600 } = options;
+  const { align = "left", color = brandColors.foreground, maxWidth, minSize = 16, weight = 600 } = options;
   let size = options.size;
   context.textAlign = align;
   context.textBaseline = "alphabetic";
@@ -92,6 +93,15 @@ function dataUrlToBlob(dataUrl: string) {
   return new Blob([bytes], { type: mimeType });
 }
 
+function loadBrandIcon() {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("No fue posible cargar el ícono de Bolsillo."));
+    image.src = "/brand-icon.png";
+  });
+}
+
 export function walletShareFilename(walletName: string) {
   const slug = walletName
     .normalize("NFD")
@@ -107,50 +117,44 @@ export function transactionsForWalletShare(transactions: readonly WalletTransact
   return transactions.slice(0, MAX_SHARED_TRANSACTIONS);
 }
 
-export function createWalletShareImage(
+export async function createWalletShareImage(
   wallet: WalletSummary,
   transactions: readonly WalletTransaction[],
 ) {
+  const brandIcon = await loadBrandIcon();
   const canvas = document.createElement("canvas");
   canvas.width = IMAGE_WIDTH;
   canvas.height = IMAGE_HEIGHT;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("No fue posible preparar la imagen.");
 
-  context.fillStyle = "#f8f7f2";
+  context.fillStyle = brandColors.background;
   context.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
 
   context.save();
-  context.shadowColor = "rgba(30, 66, 57, 0.10)";
+  context.shadowColor = brandColors.shareShadow;
   context.shadowBlur = 34;
   context.shadowOffsetY = 12;
-  fillRoundedRect(context, 48, 48, 984, 1254, 38, "#ffffff");
+  fillRoundedRect(context, 48, 48, 984, 1254, 38, brandColors.surface);
   context.restore();
 
-  fillRoundedRect(context, 88, 88, 58, 58, 18, "#176b5b");
-  drawFittedText(context, "B", 117, 129, {
-    align: "center",
-    color: "#ffffff",
-    maxWidth: 36,
-    size: 29,
-    weight: 800,
-  });
+  context.drawImage(brandIcon, 84, 84, 66, 66);
   drawFittedText(context, "Bolsillo", 166, 128, { maxWidth: 300, size: 30, weight: 750 });
   drawFittedText(context, "Resumen para compartir", 992, 124, {
     align: "right",
-    color: "#69736e",
+    color: brandColors.mutedForeground,
     maxWidth: 310,
     size: 18,
     weight: 500,
   });
 
-  context.fillStyle = "#e2e6e3";
+  context.fillStyle = brandColors.border;
   context.fillRect(88, 176, 904, 2);
 
-  fillRoundedRect(context, 88, 205, 88, 34, 17, "#ddefea");
+  fillRoundedRect(context, 88, 205, 88, 34, 17, brandColors.primarySoft);
   drawFittedText(context, wallet.currency, 132, 228, {
     align: "center",
-    color: "#176b5b",
+    color: brandColors.primary,
     maxWidth: 64,
     size: 15,
     weight: 800,
@@ -158,27 +162,27 @@ export function createWalletShareImage(
   drawFittedText(context, wallet.name, 88, 290, { maxWidth: 904, minSize: 30, size: 48, weight: 760 });
   if (wallet.description) {
     context.font = `500 19px ${FONT_FAMILY}`;
-    context.fillStyle = "#69736e";
+    context.fillStyle = brandColors.mutedForeground;
     context.textAlign = "left";
     context.fillText(truncateText(context, wallet.description, 904), 88, 324);
   }
 
   drawFittedText(context, "DISPONIBLE", 88, 365, {
-    color: "#69736e",
+    color: brandColors.mutedForeground,
     maxWidth: 300,
     size: 16,
     weight: 750,
   });
   drawFittedText(context, formatMoney(wallet.balance, wallet.currency), 88, 424, {
-    color: wallet.balance < 0 ? "#c75d45" : "#202522",
+    color: wallet.balance < 0 ? brandColors.expense : brandColors.foreground,
     maxWidth: 904,
     minSize: 34,
     size: 58,
     weight: 780,
   });
 
-  fillRoundedRect(context, 88, 462, 440, 104, 22, "#e6f2fa");
-  drawFittedText(context, "INGRESOS", 112, 495, { color: "#2878b5", maxWidth: 180, size: 15, weight: 800 });
+  fillRoundedRect(context, 88, 462, 440, 104, 22, brandColors.incomeSoft);
+  drawFittedText(context, "INGRESOS", 112, 495, { color: brandColors.income, maxWidth: 180, size: 15, weight: 800 });
   drawFittedText(context, formatMoney(wallet.totalIncome, wallet.currency), 112, 540, {
     maxWidth: 392,
     minSize: 20,
@@ -186,8 +190,8 @@ export function createWalletShareImage(
     weight: 730,
   });
 
-  fillRoundedRect(context, 552, 462, 440, 104, 22, "#faebe7");
-  drawFittedText(context, "GASTOS", 576, 495, { color: "#c75d45", maxWidth: 180, size: 15, weight: 800 });
+  fillRoundedRect(context, 552, 462, 440, 104, 22, brandColors.expenseSoft);
+  drawFittedText(context, "GASTOS", 576, 495, { color: brandColors.expense, maxWidth: 180, size: 15, weight: 800 });
   drawFittedText(context, formatMoney(wallet.totalExpense, wallet.currency), 576, 540, {
     maxWidth: 392,
     minSize: 20,
@@ -202,17 +206,17 @@ export function createWalletShareImage(
     : `${transactions.length} ${transactions.length === 1 ? "movimiento" : "movimientos"}`;
   drawFittedText(context, movementLabel, 992, 623, {
     align: "right",
-    color: "#69736e",
+    color: brandColors.mutedForeground,
     maxWidth: 280,
     size: 17,
     weight: 550,
   });
 
   if (!sharedTransactions.length) {
-    fillRoundedRect(context, 88, 662, 904, 118, 20, "#f8f7f2");
+    fillRoundedRect(context, 88, 662, 904, 118, 20, brandColors.background);
     drawFittedText(context, "Todavía no hay movimientos", 540, 730, {
       align: "center",
-      color: "#69736e",
+      color: brandColors.mutedForeground,
       maxWidth: 700,
       size: 22,
       weight: 600,
@@ -220,10 +224,10 @@ export function createWalletShareImage(
   } else {
     sharedTransactions.forEach((transaction, index) => {
       const rowTop = 654 + index * 56;
-      const accentColor = transaction.type === "income" ? "#2878b5" : "#c75d45";
+      const accentColor = transaction.type === "income" ? brandColors.income : brandColors.expense;
 
       if (index > 0) {
-        context.fillStyle = "#edf0ee";
+        context.fillStyle = brandColors.separator;
         context.fillRect(88, rowTop, 904, 1);
       }
       context.beginPath();
@@ -233,11 +237,11 @@ export function createWalletShareImage(
 
       context.font = `650 19px ${FONT_FAMILY}`;
       context.textAlign = "left";
-      context.fillStyle = "#202522";
+      context.fillStyle = brandColors.foreground;
       context.fillText(truncateText(context, transaction.description, 430), 120, rowTop + 25);
 
       context.font = `500 15px ${FONT_FAMILY}`;
-      context.fillStyle = "#69736e";
+      context.fillStyle = brandColors.mutedForeground;
       context.fillText(formatTransactionDate(transaction.date), 120, rowTop + 46);
 
       drawFittedText(
@@ -250,17 +254,17 @@ export function createWalletShareImage(
     });
   }
 
-  context.fillStyle = "#e2e6e3";
+  context.fillStyle = brandColors.border;
   context.fillRect(88, 1244, 904, 2);
   drawFittedText(context, "Generado desde Bolsillo", 88, 1278, {
-    color: "#69736e",
+    color: brandColors.mutedForeground,
     maxWidth: 360,
     size: 16,
     weight: 550,
   });
   drawFittedText(context, "Los montos reflejan el estado actual del bolsillo", 992, 1278, {
     align: "right",
-    color: "#69736e",
+    color: brandColors.mutedForeground,
     maxWidth: 500,
     size: 16,
     weight: 500,

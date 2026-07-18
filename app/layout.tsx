@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { AppChrome } from "@/components/app-chrome";
 import { AppProviders } from "@/components/app-providers";
+import { brandColors } from "@/lib/brand";
 
 import "./globals.css";
 
@@ -14,11 +15,15 @@ export const metadata: Metadata = {
   description: "Separá tu dinero por propósito y sabé siempre cuánto queda.",
   applicationName: "Bolsillo",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
+  icons: {
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/favicon.png", sizes: "64x64", type: "image/png" }],
+    shortcut: "/favicon.png",
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#176b5b",
+  themeColor: brandColors.primary,
   width: "device-width",
   initialScale: 1,
 };
