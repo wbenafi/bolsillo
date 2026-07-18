@@ -1,0 +1,10 @@
+{
+  "name": "Bolsillo",
+  "short_name": "Bolsillo",
+  "description": "Separá tu dinero por propósito y sabé siempre cuánto queda.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f7f2",
+  "theme_color": "#176b5b",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

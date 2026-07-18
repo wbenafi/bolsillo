@@ -1,0 +1,112 @@
+import { ConvexError, v } from "convex/values";
+
+import { mutation, query } from "./_generated/server";
+import { requireOwnerId } from "./auth";
+import { optionalText, requireOwnedWallet, requireText } from "./domain";
+import { transactionTypeValidator } from "./schema";
+
+const transactionFields = {
+  type: transactionTypeValidator,
+  amountMinor: v.number(),
+  description: v.string(),
+  date: v.string(),
+  notes: v.optional(v.string()),
+};
+
+function validatedFields(args: {
+  type: "income" | "expense";
+  amountMinor: number;
+  description: string;
+  date: string;
+  notes?: string;
+}) {
+  if (!Number.isSafeInteger(args.amountMinor) || args.amountMinor <= 0) {
+    throw new ConvexError({ code: "VALIDATION_ERROR", message: "El monto debe ser mayor que cero." });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date) || Number.isNaN(Date.parse(`${args.date}T00:00:00`))) {
+    throw new ConvexError({ code: "VALIDATION_ERROR", message: "La fecha no es válida." });
+  }
+  return {
+    type: args.type,
+    amountMinor: args.amountMinor,
+    description: requireText(args.description, "La descripción", 100),
+    date: args.date,
+    notes: optionalText(args.notes, 500),
+  };
+}
+
+export const listTransactionsByWallet = query({
+  args: { walletId: v.id("wallets") },
+  handler: async (ctx, { walletId }) => {
+    const ownerId = await requireOwnerId(ctx);
+    await requireOwnedWallet(ctx, walletId, ownerId);
+    const transactions = await ctx.db
+      .query("transactions")
+      .withIndex("by_wallet", (q) => q.eq("walletId", walletId))
+      .collect();
+    return transactions.sort(
+      (a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt,
+    );
+  },
+});
+
+export const getTransaction = query({
+  args: { transactionId: v.id("transactions") },
+  handler: async (ctx, { transactionId }) => {
+    const ownerId = await requireOwnerId(ctx);
+    const transaction = await ctx.db.get(transactionId);
+    if (!transaction || transaction.ownerId !== ownerId) {
+      throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
+    }
+    await requireOwnedWallet(ctx, transaction.walletId, ownerId);
+    return transaction;
+  },
+});
+
+export const createTransaction = mutation({
+  args: { walletId: v.id("wallets"), ...transactionFields },
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const wallet = await requireOwnedWallet(ctx, args.walletId, ownerId);
+    if (wallet.archivedAt) {
+      throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para agregar movimientos." });
+    }
+    const now = Date.now();
+    return await ctx.db.insert("transactions", {
+      ownerId,
+      walletId: args.walletId,
+      ...validatedFields(args),
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const updateTransaction = mutation({
+  args: { transactionId: v.id("transactions"), ...transactionFields },
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const transaction = await ctx.db.get(args.transactionId);
+    if (!transaction || transaction.ownerId !== ownerId) {
+      throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
+    }
+    const wallet = await requireOwnedWallet(ctx, transaction.walletId, ownerId);
+    if (wallet.archivedAt) {
+      throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para editar movimientos." });
+    }
+    await ctx.db.patch(args.transactionId, { ...validatedFields(args), updatedAt: Date.now() });
+  },
+});
+
+export const deleteTransaction = mutation({
+  args: { transactionId: v.id("transactions") },
+  handler: async (ctx, { transactionId }) => {
+    const ownerId = await requireOwnerId(ctx);
+    const transaction = await ctx.db.get(transactionId);
+    if (!transaction || transaction.ownerId !== ownerId) {
+      throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
+    }
+    await requireOwnedWallet(ctx, transaction.walletId, ownerId);
+    await ctx.db.delete(transactionId);
+  },
+});

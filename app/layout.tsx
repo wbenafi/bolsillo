@@ -1,0 +1,39 @@
+import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppChrome } from "@/components/app-chrome";
+import { AppProviders } from "@/components/app-providers";
+
+import "./globals.css";
+
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: { default: "Bolsillo", template: "%s · Bolsillo" },
+  description: "Separá tu dinero por propósito y sabé siempre cuánto queda.",
+  applicationName: "Bolsillo",
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#176b5b",
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="es" className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body>
+        <AppProviders
+          clerkPublishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+          convexUrl={process.env.NEXT_PUBLIC_CONVEX_URL}
+        >
+          <AppChrome>{children}</AppChrome>
+        </AppProviders>
+      </body>
+    </html>
+  );
+}
