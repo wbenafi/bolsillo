@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "convex/react";
 import { ArrowDownLeft, ArrowUpRight, LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -20,12 +21,15 @@ type TransactionFormProps = {
   currency: Currency;
   initialType?: TransactionType;
   transaction?: WalletTransaction;
+  onDeletingChange?: (isDeleting: boolean) => void;
 };
 
-export function TransactionForm({ walletId, currency, initialType = "expense", transaction }: TransactionFormProps) {
+export function TransactionForm({ walletId, currency, initialType = "expense", transaction, onDeletingChange }: TransactionFormProps) {
   const router = useRouter();
   const createTransaction = useMutation(api.transactions.createTransaction);
   const updateTransaction = useMutation(api.transactions.updateTransaction);
+  const deleteTransaction = useMutation(api.transactions.deleteTransaction);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
@@ -37,6 +41,21 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
     },
   });
   const selectedType = useWatch({ control, name: "type" });
+
+  async function removeTransaction() {
+    if (!transaction || !window.confirm("¿Eliminar este movimiento?\nEsta acción cambiará el saldo del bolsillo.")) return;
+    setIsDeleting(true);
+    onDeletingChange?.(true);
+    try {
+      await deleteTransaction({ transactionId: transaction._id });
+      toast.success("Movimiento eliminado");
+      router.replace(`/wallets/${walletId}`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+      onDeletingChange?.(false);
+      setIsDeleting(false);
+    }
+  }
 
   const onSubmit = handleSubmit(async (values) => {
     const amountMinor = parseMoneyInput(values.amount, currency);
@@ -96,12 +115,20 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
         <label htmlFor="notes">Notas <span>Opcional</span></label>
         <textarea id="notes" rows={3} maxLength={500} placeholder="Agregá un detalle que quieras recordar" {...register("notes")} />
       </div>
-      <div className="form-actions">
-        <button type="button" className="button secondary" onClick={() => router.back()}>Cancelar</button>
-        <button type="submit" className="button primary" disabled={isSubmitting}>
-          {isSubmitting && <LoaderCircle className="spin" size={18} />}
-          {transaction ? "Guardar cambios" : "Guardar movimiento"}
-        </button>
+      <div className={transaction ? "form-actions edit-actions" : "form-actions"}>
+        {transaction && (
+          <button type="button" className="button destructive" onClick={removeTransaction} disabled={isSubmitting || isDeleting}>
+            {isDeleting && <LoaderCircle className="spin" size={18} />}
+            Eliminar movimiento
+          </button>
+        )}
+        <div className="form-actions-main">
+          <button type="button" className="button secondary" onClick={() => router.back()} disabled={isDeleting}>Cancelar</button>
+          <button type="submit" className="button primary" disabled={isSubmitting || isDeleting}>
+            {isSubmitting && <LoaderCircle className="spin" size={18} />}
+            {transaction ? "Guardar cambios" : "Guardar movimiento"}
+          </button>
+        </div>
       </div>
     </form>
   );

@@ -39,13 +39,18 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: "Guardar movimiento" }).click();
   await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*815.*000/);
 
-  await page.getByRole("link", { name: "Editar Compra de cemento" }).click();
+  await page.getByRole("link", { name: /Compra de cemento/ }).click();
   await page.getByLabel("Monto").fill("200000");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
   await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*800.*000/);
+  await page.locator(".movements-section").screenshot({
+    path: `output/playwright/${testInfo.project.name}-movement-list.png`,
+  });
 
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Eliminar Aporte inicial" }).click();
+  await page.getByRole("link", { name: /Aporte inicial/ }).click();
+  await expect(page.getByRole("heading", { name: "Editar movimiento" })).toBeVisible();
+  await page.getByRole("button", { name: "Eliminar movimiento" }).click();
   await expect(page.locator(".hero-balance strong")).toHaveText(/[-−]₡200.*000/);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(4_500);

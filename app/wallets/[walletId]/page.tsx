@@ -7,6 +7,7 @@ import { notFound, useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { LoadingState } from "@/components/ui-states";
+import { ShareWalletButton } from "@/components/share-wallet-button";
 import { TransactionList } from "@/components/transaction-list";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -35,7 +36,7 @@ export default function WalletDetailPage() {
     <main className="page-shell wallet-detail">
       <Link className="back-link" href="/"><ArrowLeft /> Bolsillos</Link>
       <section className="wallet-hero">
-        <div className="wallet-title"><div><p className="eyebrow">{wallet.currency}</p><h1>{wallet.name}</h1>{wallet.description && <p>{wallet.description}</p>}</div><details className="menu"><summary role="button" aria-label="Opciones del bolsillo"><MoreHorizontal /></summary><div><Link href={`/wallets/${walletId}/edit`}><Pencil /> Editar</Link><button type="button" onClick={archive}><Archive /> Archivar</button></div></details></div>
+        <div className="wallet-title"><div><p className="eyebrow">{wallet.currency}</p><h1>{wallet.name}</h1>{wallet.description && <p>{wallet.description}</p>}</div><details className="menu"><summary role="button" aria-label="Opciones del bolsillo"><MoreHorizontal /></summary><div><ShareWalletButton wallet={wallet} transactions={transactions} /><Link href={`/wallets/${walletId}/edit`}><Pencil /> Editar</Link><button type="button" onClick={archive}><Archive /> Archivar</button></div></details></div>
         <div className="hero-balance"><span>Disponible</span><strong className={wallet.balance < 0 ? "negative" : ""}>{formatMoney(wallet.balance, wallet.currency)}</strong></div>
         <div className="totals-grid"><div className="total income"><span><ArrowDownLeft /> Ingresos</span><strong>{formatMoney(wallet.totalIncome, wallet.currency)}</strong></div><div className="total expense"><span><ArrowUpRight /> Gastos</span><strong>{formatMoney(wallet.totalExpense, wallet.currency)}</strong></div></div>
       </section>
