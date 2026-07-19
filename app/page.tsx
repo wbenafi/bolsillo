@@ -15,7 +15,7 @@ export default function WalletsPage() {
   return (
     <main className="page-shell">
       <section className="page-heading split">
-        <div><p className="eyebrow">Tu dinero, por propósito</p><h1>Bolsillos</h1><p>Todo lo que necesitás para saber cuánto queda.</p></div>
+        <div><p className="eyebrow">Tu dinero, por propósito</p><h1>Bolsillos</h1><p>Organizá tu dinero por propósito y mantené cada saldo al día.</p></div>
         <Link className="button primary" href="/wallets/new"><Plus /> Nuevo bolsillo</Link>
       </section>
       {wallets === undefined ? <LoadingState label="Buscando tus bolsillos…" /> : wallets.length === 0 ? <EmptyWallets /> : <div className="wallet-grid">{wallets.map((wallet) => <WalletCard wallet={wallet} key={wallet._id} />)}</div>}

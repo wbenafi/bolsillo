@@ -1,7 +1,7 @@
 {
   "name": "Bolsillo",
   "short_name": "Bolsillo",
-  "description": "Separá tu dinero por propósito y sabé siempre cuánto queda.",
+  "description": "Organizá tu dinero en bolsillos, registrá ingresos y gastos, y mantené cada saldo al día.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8f5ed",

@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 
 export const metadata: Metadata = {
   title: { default: "Bolsillo", template: "%s · Bolsillo" },
-  description: "Separá tu dinero por propósito y sabé siempre cuánto queda.",
+  description: "Organizá tu dinero en bolsillos, registrá ingresos y gastos, y mantené cada saldo al día.",
   applicationName: "Bolsillo",
   manifest: "/manifest.webmanifest",
   icons: {
