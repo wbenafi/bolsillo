@@ -27,10 +27,9 @@ function downloadFile(file: File) {
 export function ShareWalletButton({ transactions, wallet }: ShareWalletButtonProps) {
   const [isSharing, setIsSharing] = useState(false);
 
-  async function shareWallet(event: React.MouseEvent<HTMLButtonElement>) {
+  async function shareWallet() {
     if (isSharing) return;
     setIsSharing(true);
-    event.currentTarget.closest("details")?.removeAttribute("open");
 
     try {
       const blob = await createWalletShareImage(wallet, transactions);
@@ -60,9 +59,15 @@ export function ShareWalletButton({ transactions, wallet }: ShareWalletButtonPro
   }
 
   return (
-    <button type="button" onClick={shareWallet} disabled={isSharing}>
+    <button
+      type="button"
+      className="icon-link share-wallet-button"
+      onClick={shareWallet}
+      disabled={isSharing}
+      aria-label={isSharing ? "Preparando resumen para compartir" : "Compartir resumen"}
+      title={isSharing ? "Preparando…" : "Compartir resumen"}
+    >
       <Share2 aria-hidden="true" />
-      {isSharing ? "Preparando…" : "Compartir resumen"}
     </button>
   );
 }
