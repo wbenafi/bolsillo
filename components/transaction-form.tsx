@@ -1,20 +1,21 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { ArrowDownLeft, ArrowUpRight, LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
+import { TagSelector } from "@/components/tag-selector";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { errorMessage } from "@/lib/errors";
 import { moneyInputValue, parseMoneyInput } from "@/lib/money";
 import { todayInputValue } from "@/lib/date";
 import { transactionSchema, type TransactionFormValues } from "@/lib/validators";
-import type { Currency, TransactionType, WalletTransaction } from "@/types/domain";
+import type { Currency, TransactionType, WalletTag, WalletTransaction } from "@/types/domain";
 
 type TransactionFormProps = {
   walletId: Id<"wallets">;
@@ -29,6 +30,7 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
   const createTransaction = useMutation(api.transactions.createTransaction);
   const updateTransaction = useMutation(api.transactions.updateTransaction);
   const deleteTransaction = useMutation(api.transactions.deleteTransaction);
+  const tags = useQuery(api.tags.listTagsByWallet, { walletId }) as WalletTag[] | undefined;
   const [isDeleting, setIsDeleting] = useState(false);
   const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema),
@@ -38,9 +40,11 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
       description: transaction?.description ?? "",
       date: transaction?.date ?? todayInputValue(),
       notes: transaction?.notes ?? "",
+      tagIds: transaction?.tagIds ?? [],
     },
   });
   const selectedType = useWatch({ control, name: "type" });
+  const selectedTagIds = useWatch({ control, name: "tagIds" });
 
   async function removeTransaction() {
     if (!transaction || !window.confirm("¿Eliminar este movimiento?\nEsta acción cambiará el saldo del bolsillo.")) return;
@@ -70,6 +74,7 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
         description: values.description.trim(),
         date: values.date,
         notes: values.notes.trim() || undefined,
+        tagIds: values.tagIds.length ? values.tagIds : undefined,
       };
       if (transaction) {
         await updateTransaction({ transactionId: transaction._id, ...payload });
@@ -115,6 +120,12 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
         <label htmlFor="notes">Notas <span>Opcional</span></label>
         <textarea id="notes" rows={3} maxLength={500} placeholder="Agregá un detalle que quieras recordar" {...register("notes")} />
       </div>
+      <TagSelector
+        walletId={walletId}
+        tags={tags ?? []}
+        selectedTagIds={selectedTagIds}
+        onChange={(tagIds) => setValue("tagIds", tagIds, { shouldDirty: true })}
+      />
       <div className={transaction ? "form-actions edit-actions" : "form-actions"}>
         {transaction && (
           <button type="button" className="button destructive" onClick={removeTransaction} disabled={isSubmitting || isDeleting}>

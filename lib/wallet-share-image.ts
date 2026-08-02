@@ -120,6 +120,7 @@ export function transactionsForWalletShare(transactions: readonly WalletTransact
 export async function createWalletShareImage(
   wallet: WalletSummary,
   transactions: readonly WalletTransaction[],
+  filterLabels: readonly string[] = [],
 ) {
   const brandIcon = await loadBrandIcon();
   const canvas = document.createElement("canvas");
@@ -140,7 +141,7 @@ export async function createWalletShareImage(
 
   context.drawImage(brandIcon, 84, 84, 66, 66);
   drawFittedText(context, "Bolsillo", 166, 128, { maxWidth: 300, size: 30, weight: 750 });
-  drawFittedText(context, "Resumen para compartir", 992, 124, {
+  drawFittedText(context, filterLabels.length ? `Filtrado por: ${filterLabels.join(", ")}` : "Resumen para compartir", 992, 124, {
     align: "right",
     color: brandColors.mutedForeground,
     maxWidth: 310,
@@ -200,7 +201,7 @@ export async function createWalletShareImage(
   });
 
   const sharedTransactions = transactionsForWalletShare(transactions);
-  drawFittedText(context, "Últimos movimientos", 88, 625, { maxWidth: 430, size: 29, weight: 760 });
+  drawFittedText(context, filterLabels.length ? "Movimientos filtrados" : "Últimos movimientos", 88, 625, { maxWidth: 430, size: 29, weight: 760 });
   const movementLabel = transactions.length > MAX_SHARED_TRANSACTIONS
     ? `Últimos ${MAX_SHARED_TRANSACTIONS} de ${transactions.length}`
     : `${transactions.length} ${transactions.length === 1 ? "movimiento" : "movimientos"}`;

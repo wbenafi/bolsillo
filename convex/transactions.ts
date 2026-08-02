@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { requireOwnerId } from "./auth";
 import { optionalText, requireOwnedWallet, requireText } from "./domain";
 import { transactionTypeValidator } from "./schema";
+import { validateAssignedTagIds } from "./tags";
 
 const transactionFields = {
   type: transactionTypeValidator,
@@ -11,6 +12,7 @@ const transactionFields = {
   description: v.string(),
   date: v.string(),
   notes: v.optional(v.string()),
+  tagIds: v.optional(v.array(v.id("tags"))),
 };
 
 function validatedFields(args: {
@@ -72,10 +74,12 @@ export const createTransaction = mutation({
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para agregar movimientos." });
     }
     const now = Date.now();
+    const tagIds = await validateAssignedTagIds(ctx, args.tagIds, args.walletId, ownerId);
     return await ctx.db.insert("transactions", {
       ownerId,
       walletId: args.walletId,
       ...validatedFields(args),
+      tagIds,
       createdAt: now,
       updatedAt: now,
     });
@@ -94,7 +98,8 @@ export const updateTransaction = mutation({
     if (wallet.archivedAt) {
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para editar movimientos." });
     }
-    await ctx.db.patch(args.transactionId, { ...validatedFields(args), updatedAt: Date.now() });
+    const tagIds = await validateAssignedTagIds(ctx, args.tagIds, transaction.walletId, ownerId);
+    await ctx.db.patch(args.transactionId, { ...validatedFields(args), tagIds, updatedAt: Date.now() });
   },
 });
 

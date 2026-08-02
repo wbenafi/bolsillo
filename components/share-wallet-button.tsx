@@ -13,6 +13,7 @@ import type { WalletSummary, WalletTransaction } from "@/types/domain";
 type ShareWalletButtonProps = {
   transactions: WalletTransaction[];
   wallet: WalletSummary;
+  filterLabels?: string[];
 };
 
 function downloadFile(file: File) {
@@ -24,7 +25,7 @@ function downloadFile(file: File) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-export function ShareWalletButton({ transactions, wallet }: ShareWalletButtonProps) {
+export function ShareWalletButton({ transactions, wallet, filterLabels = [] }: ShareWalletButtonProps) {
   const [isSharing, setIsSharing] = useState(false);
 
   async function shareWallet() {
@@ -32,7 +33,7 @@ export function ShareWalletButton({ transactions, wallet }: ShareWalletButtonPro
     setIsSharing(true);
 
     try {
-      const blob = await createWalletShareImage(wallet, transactions);
+      const blob = await createWalletShareImage(wallet, transactions, filterLabels);
       const file = new File([blob], walletShareFilename(wallet.name), { type: "image/png" });
       const canShareFile = typeof navigator.share === "function"
         && typeof navigator.canShare === "function"
@@ -41,7 +42,7 @@ export function ShareWalletButton({ transactions, wallet }: ShareWalletButtonPro
       if (canShareFile) {
         await navigator.share({
           files: [file],
-          text: `Resumen de ${wallet.name}`,
+          text: `${filterLabels.length ? "Resumen filtrado" : "Resumen"} de ${wallet.name}`,
           title: `Bolsillo · ${wallet.name}`,
         });
         toast.success("Resumen compartido");

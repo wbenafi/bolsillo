@@ -143,7 +143,12 @@ export const deleteWallet = mutation({
       .query("transactions")
       .withIndex("by_wallet", (q) => q.eq("walletId", walletId))
       .collect();
+    const tags = await ctx.db
+      .query("tags")
+      .withIndex("by_wallet", (q) => q.eq("walletId", walletId))
+      .collect();
     await Promise.all(transactions.map((transaction) => ctx.db.delete(transaction._id)));
+    await Promise.all(tags.map((tag) => ctx.db.delete(tag._id)));
     await ctx.db.delete(walletId);
   },
 });
