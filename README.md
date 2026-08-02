@@ -62,7 +62,10 @@ npm run build
 
 1. Importá el repositorio en Vercel.
 2. Agregá las variables de Clerk y `NEXT_PUBLIC_CONVEX_URL` al proyecto de Vercel.
-3. En Convex, configurá `CLERK_JWT_ISSUER_DOMAIN` para producción.
-4. Ejecutá `npx convex deploy` y desplegá el frontend en Vercel.
+3. Generá una Production Deploy Key de Convex con permiso `deployment:deploy` y guardala en Vercel como `CONVEX_DEPLOY_KEY`, limitada al ambiente Production.
+4. En Convex, configurá `CLERK_JWT_ISSUER_DOMAIN` para producción.
+5. Desplegá el frontend en Vercel. El `buildCommand` de `vercel.json` publica primero las funciones, el schema y los índices de Convex; si ese paso falla, la release también falla.
+
+Los Preview Deployments ejecutan únicamente el build de Next.js. Para darles un backend Convex aislado, configurá adicionalmente una Preview Deploy Key siguiendo la guía oficial de Convex.
 
 Las rutas `/sign-in` y `/sign-up` son públicas. El resto queda protegido por Clerk en `proxy.ts` y cada query o mutation vuelve a comprobar identidad y propiedad en Convex.
