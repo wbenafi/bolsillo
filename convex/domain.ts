@@ -9,10 +9,13 @@ export async function requireOwnedWallet(
   ctx: DatabaseContext,
   walletId: Id<"wallets">,
   ownerId: string,
+  accountId?: Id<"accounts">,
 ) {
   const wallet = await ctx.db.get(walletId);
 
-  if (!wallet || wallet.ownerId !== ownerId) {
+  const belongsToAccount = accountId && wallet?.accountId === accountId;
+  const belongsToLegacyOwner = !wallet?.accountId && wallet?.ownerId === ownerId;
+  if (!wallet || (!belongsToAccount && !belongsToLegacyOwner)) {
     throw new ConvexError({
       code: "WALLET_NOT_FOUND",
       message: "No encontramos este bolsillo.",

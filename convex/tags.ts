@@ -3,7 +3,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { requireOwnerId } from "./auth";
+import { requireAccountContext, requireFeature } from "./auth";
 import { optionalText, requireOwnedWallet, requireText } from "./domain";
 import { tagColorValidator } from "./schema";
 
@@ -49,12 +49,17 @@ async function requireUniqueLabel(
   }
 }
 
-async function requireOwnedTag(ctx: DatabaseContext, tagId: Id<"tags">, ownerId: string) {
+async function requireOwnedTag(
+  ctx: DatabaseContext,
+  tagId: Id<"tags">,
+  ownerId: string,
+  accountId: Id<"accounts">,
+) {
   const tag = await ctx.db.get(tagId);
   if (!tag || tag.ownerId !== ownerId) {
     throw new ConvexError({ code: "TAG_NOT_FOUND", message: "No encontramos este tag." });
   }
-  await requireOwnedWallet(ctx, tag.walletId, ownerId);
+  await requireOwnedWallet(ctx, tag.walletId, ownerId, accountId);
   return tag;
 }
 
@@ -79,8 +84,8 @@ export async function validateAssignedTagIds(
 export const listTagsByWallet = query({
   args: { walletId: v.id("wallets") },
   handler: async (ctx, { walletId }) => {
-    const ownerId = await requireOwnerId(ctx);
-    await requireOwnedWallet(ctx, walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireOwnedWallet(ctx, walletId, ownerId, account._id);
     const [tags, transactions] = await Promise.all([
       ctx.db.query("tags").withIndex("by_wallet", (q) => q.eq("walletId", walletId)).collect(),
       ctx.db.query("transactions").withIndex("by_wallet", (q) => q.eq("walletId", walletId)).collect(),
@@ -103,8 +108,9 @@ export const listTagsByWallet = query({
 export const createTag = mutation({
   args: { walletId: v.id("wallets"), ...tagFields },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwnerId(ctx);
-    const wallet = await requireOwnedWallet(ctx, args.walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireFeature(ctx, account._id, "tags.manage");
+    const wallet = await requireOwnedWallet(ctx, args.walletId, ownerId, account._id);
     if (wallet.archivedAt) {
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para agregar tags." });
     }
@@ -124,9 +130,10 @@ export const createTag = mutation({
 export const updateTag = mutation({
   args: { tagId: v.id("tags"), ...tagFields },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwnerId(ctx);
-    const tag = await requireOwnedTag(ctx, args.tagId, ownerId);
-    const wallet = await requireOwnedWallet(ctx, tag.walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireFeature(ctx, account._id, "tags.manage");
+    const tag = await requireOwnedTag(ctx, args.tagId, ownerId, account._id);
+    const wallet = await requireOwnedWallet(ctx, tag.walletId, ownerId, account._id);
     if (wallet.archivedAt) {
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para editar tags." });
     }
@@ -139,9 +146,10 @@ export const updateTag = mutation({
 export const deleteTag = mutation({
   args: { tagId: v.id("tags") },
   handler: async (ctx, { tagId }) => {
-    const ownerId = await requireOwnerId(ctx);
-    const tag = await requireOwnedTag(ctx, tagId, ownerId);
-    const wallet = await requireOwnedWallet(ctx, tag.walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireFeature(ctx, account._id, "tags.manage");
+    const tag = await requireOwnedTag(ctx, tagId, ownerId, account._id);
+    const wallet = await requireOwnedWallet(ctx, tag.walletId, ownerId, account._id);
     if (wallet.archivedAt) {
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para eliminar tags." });
     }

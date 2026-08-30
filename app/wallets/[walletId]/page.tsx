@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { LoadingState } from "@/components/ui-states";
 import { ShareWalletButton } from "@/components/share-wallet-button";
 import { TransactionList } from "@/components/transaction-list";
+import { useFeature } from "@/components/viewer-context";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { errorMessage } from "@/lib/errors";
@@ -25,6 +26,9 @@ export default function WalletDetailPage() {
   const transactions = useQuery(api.transactions.listTransactionsByWallet, { walletId }) as WalletTransaction[] | undefined;
   const tags = useQuery(api.tags.listTagsByWallet, { walletId }) as WalletTag[] | undefined;
   const archiveWallet = useMutation(api.wallets.archiveWallet);
+  const canManageTransactions = useFeature("transactions.manage");
+  const canManageTags = useFeature("tags.manage");
+  const canShare = useFeature("wallets.share");
 
   if (wallet === null) notFound();
   if (!wallet || !transactions || !tags) return <main className="page-shell"><LoadingState label="Calculando tu saldo…" /></main>;
@@ -67,20 +71,20 @@ export default function WalletDetailPage() {
         <div className="wallet-title">
           <div><p className="eyebrow">{wallet.currency}</p><h1>{wallet.name}</h1>{wallet.description && <p>{wallet.description}</p>}</div>
           <div className="wallet-title-actions">
-            <ShareWalletButton wallet={displayedWallet} transactions={filteredTransactions} filterLabels={selectedTags.map((tag) => tag.label)} />
+            {canShare && <ShareWalletButton wallet={displayedWallet} transactions={filteredTransactions} filterLabels={selectedTags.map((tag) => tag.label)} />}
             <details className="menu">
               <summary role="button" aria-label="Opciones del bolsillo"><MoreHorizontal /></summary>
-              <div><Link href={`/wallets/${walletId}/edit`}><Pencil /> Editar</Link><Link href={`/wallets/${walletId}/tags`}><Tags /> Administrar tags</Link><button type="button" onClick={archive}><Archive /> Archivar</button></div>
+              <div><Link href={`/wallets/${walletId}/edit`}><Pencil /> Editar</Link>{canManageTags && <Link href={`/wallets/${walletId}/tags`}><Tags /> Administrar tags</Link>}<button type="button" onClick={archive}><Archive /> Archivar</button></div>
             </details>
           </div>
         </div>
         <div className="hero-balance"><span>{hasActiveFilters ? "Disponible filtrado" : "Disponible"}</span><strong className={displayedWallet.balance < 0 ? "negative" : ""}>{formatMoney(displayedWallet.balance, wallet.currency)}</strong></div>
         <div className="totals-grid"><div className="total income"><span><ArrowDownLeft /> {hasActiveFilters ? "Ingresos filtrados" : "Ingresos"}</span><strong>{formatMoney(displayedWallet.totalIncome, wallet.currency)}</strong></div><div className="total expense"><span><ArrowUpRight /> {hasActiveFilters ? "Gastos filtrados" : "Gastos"}</span><strong>{formatMoney(displayedWallet.totalExpense, wallet.currency)}</strong></div></div>
       </section>
-      {!wallet.archivedAt && <div className="movement-actions"><Link className="button income-button" href={`/wallets/${walletId}/transactions/new?type=income`}><ArrowDownLeft /> Agregar ingreso</Link><Link className="button expense-button" href={`/wallets/${walletId}/transactions/new?type=expense`}><ArrowUpRight /> Agregar gasto</Link></div>}
+      {!wallet.archivedAt && canManageTransactions && <div className="movement-actions"><Link className="button income-button" href={`/wallets/${walletId}/transactions/new?type=income`}><ArrowDownLeft /> Agregar ingreso</Link><Link className="button expense-button" href={`/wallets/${walletId}/transactions/new?type=expense`}><ArrowUpRight /> Agregar gasto</Link></div>}
       {wallet.archivedAt && <div className="archived-notice"><Archive /> Este bolsillo está archivado. Restauralo para modificarlo.</div>}
       <section className="movements-section">
-        <div className="section-title"><div><p className="eyebrow">{hasActiveFilters ? `${filteredTransactions.length} de ${transactions.length} registros` : `${transactions.length} ${transactions.length === 1 ? "registro" : "registros"}`}</p><h2>Movimientos</h2></div>{!wallet.archivedAt && <Link className="icon-link desktop-add" href={`/wallets/${walletId}/transactions/new`} aria-label="Agregar movimiento"><Plus /></Link>}</div>
+        <div className="section-title"><div><p className="eyebrow">{hasActiveFilters ? `${filteredTransactions.length} de ${transactions.length} registros` : `${transactions.length} ${transactions.length === 1 ? "registro" : "registros"}`}</p><h2>Movimientos</h2></div>{!wallet.archivedAt && canManageTransactions && <Link className="icon-link desktop-add" href={`/wallets/${walletId}/transactions/new`} aria-label="Agregar movimiento"><Plus /></Link>}</div>
         {tags.length > 0 && (
           <div className="transaction-filters" aria-label="Filtrar movimientos por tags">
             <div className="filter-heading"><span><Tags /> Filtrar por tags</span><Link href={`/wallets/${walletId}/tags`}>Administrar</Link></div>

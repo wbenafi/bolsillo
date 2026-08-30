@@ -2,6 +2,23 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["lib/**/*.test.ts"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "convex",
+          include: ["convex/**/*.test.ts"],
+          environment: "edge-runtime",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "unit",
+          include: ["lib/**/*.test.ts"],
+          environment: "node",
+        },
+      },
+    ],
   },
 });

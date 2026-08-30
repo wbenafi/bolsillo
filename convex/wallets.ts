@@ -1,8 +1,8 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { requireOwnerId } from "./auth";
+import { requireAccountContext, requireFeature } from "./auth";
 import { optionalText, requireOwnedWallet, requireText } from "./domain";
 import { currencyValidator } from "./schema";
 
@@ -37,10 +37,10 @@ async function walletSummary(
 export const listActiveWallets = query({
   args: {},
   handler: async (ctx) => {
-    const ownerId = await requireOwnerId(ctx);
+    const { account } = await requireAccountContext(ctx);
     const wallets = await ctx.db
       .query("wallets")
-      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .filter((q) => q.eq(q.field("archivedAt"), undefined))
       .collect();
     const summarized = await Promise.all(
@@ -57,10 +57,10 @@ export const listActiveWallets = query({
 export const listArchivedWallets = query({
   args: {},
   handler: async (ctx) => {
-    const ownerId = await requireOwnerId(ctx);
+    const { account } = await requireAccountContext(ctx);
     const wallets = await ctx.db
       .query("wallets")
-      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .filter((q) => q.neq(q.field("archivedAt"), undefined))
       .collect();
     return await Promise.all(
@@ -74,8 +74,8 @@ export const listArchivedWallets = query({
 export const getWallet = query({
   args: { walletId: v.id("wallets") },
   handler: async (ctx, { walletId }) => {
-    const ownerId = await requireOwnerId(ctx);
-    const wallet = await requireOwnedWallet(ctx, walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    const wallet = await requireOwnedWallet(ctx, walletId, ownerId, account._id);
     return { ...wallet, ...(await walletSummary(ctx, wallet)) };
   },
 });
@@ -83,10 +83,26 @@ export const getWallet = query({
 export const createWallet = mutation({
   args: { name: v.string(), description: v.optional(v.string()), currency: currencyValidator },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwnerId(ctx);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    const feature = await requireFeature(ctx, account._id, "wallets.create");
+    if (feature?.limit !== undefined) {
+      const activeWallets = await ctx.db
+        .query("wallets")
+        .withIndex("by_account_archived", (q) =>
+          q.eq("accountId", account._id).eq("archivedAt", undefined),
+        )
+        .collect();
+      if (activeWallets.length >= feature.limit) {
+        throw new ConvexError({
+          code: "FEATURE_LIMIT_REACHED",
+          message: `Tu cuenta puede tener hasta ${feature.limit} bolsillos activos.`,
+        });
+      }
+    }
     const now = Date.now();
     return await ctx.db.insert("wallets", {
       ownerId,
+      accountId: account._id,
       name: requireText(args.name, "El nombre", 60),
       description: optionalText(args.description, 240),
       currency: args.currency,
@@ -104,8 +120,8 @@ export const updateWallet = mutation({
     currency: currencyValidator,
   },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwnerId(ctx);
-    await requireOwnedWallet(ctx, args.walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireOwnedWallet(ctx, args.walletId, ownerId, account._id);
     await ctx.db.patch(args.walletId, {
       name: requireText(args.name, "El nombre", 60),
       description: optionalText(args.description, 240),
@@ -118,8 +134,8 @@ export const updateWallet = mutation({
 export const archiveWallet = mutation({
   args: { walletId: v.id("wallets") },
   handler: async (ctx, { walletId }) => {
-    const ownerId = await requireOwnerId(ctx);
-    await requireOwnedWallet(ctx, walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireOwnedWallet(ctx, walletId, ownerId, account._id);
     const now = Date.now();
     await ctx.db.patch(walletId, { archivedAt: now, updatedAt: now });
   },
@@ -128,8 +144,23 @@ export const archiveWallet = mutation({
 export const restoreWallet = mutation({
   args: { walletId: v.id("wallets") },
   handler: async (ctx, { walletId }) => {
-    const ownerId = await requireOwnerId(ctx);
-    await requireOwnedWallet(ctx, walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireOwnedWallet(ctx, walletId, ownerId, account._id);
+    const feature = await requireFeature(ctx, account._id, "wallets.create");
+    if (feature?.limit !== undefined) {
+      const activeWallets = await ctx.db
+        .query("wallets")
+        .withIndex("by_account_archived", (q) =>
+          q.eq("accountId", account._id).eq("archivedAt", undefined),
+        )
+        .collect();
+      if (activeWallets.length >= feature.limit) {
+        throw new ConvexError({
+          code: "FEATURE_LIMIT_REACHED",
+          message: `Tu cuenta puede tener hasta ${feature.limit} bolsillos activos.`,
+        });
+      }
+    }
     await ctx.db.patch(walletId, { archivedAt: undefined, updatedAt: Date.now() });
   },
 });
@@ -137,8 +168,8 @@ export const restoreWallet = mutation({
 export const deleteWallet = mutation({
   args: { walletId: v.id("wallets") },
   handler: async (ctx, { walletId }) => {
-    const ownerId = await requireOwnerId(ctx);
-    await requireOwnedWallet(ctx, walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireOwnedWallet(ctx, walletId, ownerId, account._id);
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_wallet", (q) => q.eq("walletId", walletId))
