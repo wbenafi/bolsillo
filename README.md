@@ -38,6 +38,48 @@ npm run convex:dev
 
 Convex toma el propietario exclusivamente de `ctx.auth.getUserIdentity().subject`; ningún `userId` enviado por el navegador se acepta como fuente de autorización.
 
+## Archivos privados de movimientos con Cloudflare R2
+
+La función `transactions.files` permite adjuntar hasta cinco archivos JPG, PNG, WebP, PDF o TXT de 2 MB cada uno. Está deshabilitada por defecto y solo un superadmin puede habilitarla por cuenta.
+
+### Crear los buckets
+
+Usá buckets separados para desarrollo y producción. Los buckets deben permanecer privados:
+
+```bash
+npx wrangler login
+npx wrangler r2 bucket create bolsillo-files-dev
+npx wrangler r2 bucket create bolsillo-files-prod
+```
+
+En Cloudflare, creá para cada bucket un token R2 con permiso **Object Read & Write** limitado exclusivamente a ese bucket. Guardá el Access Key ID y el Secret Access Key cuando se muestren; el secreto no vuelve a estar disponible.
+
+Copiá `r2/cors.example.json`, reemplazá `https://bolsillo.example.com` por el origen real de la aplicación y aplicá la política al bucket correspondiente:
+
+```bash
+cp r2/cors.example.json r2/cors.json
+npx wrangler r2 bucket cors set bolsillo-files-dev --file r2/cors.json
+npx wrangler r2 bucket cors list bolsillo-files-dev
+```
+
+`r2/cors.json` es configuración local y no debe contener credenciales. Agregá explícitamente cada origen de Preview que necesite probar cargas; R2 valida el origen aunque la URL ya esté firmada.
+
+### Configurar Convex
+
+Las credenciales se usan únicamente desde Node actions de Convex. Configuralas en cada deployment, sin el prefijo `NEXT_PUBLIC_`:
+
+```bash
+npx convex env set R2_ACCOUNT_ID
+npx convex env set R2_BUCKET_NAME bolsillo-files-dev
+npx convex env set R2_ACCESS_KEY_ID
+npx convex env set R2_SECRET_ACCESS_KEY
+npx convex env set R2_PRESIGN_TTL_SECONDS 300
+```
+
+Repetí los comandos con `--prod` y el bucket de producción. Omitir el valor de los secretos permite ingresarlos interactivamente sin guardarlos en el historial del shell.
+
+Las cargas usan URLs `PUT` firmadas por cinco minutos. Antes de guardar el movimiento, Convex vuelve a descargar cada objeto desde R2 y valida tamaño, MIME y firma del contenido. Las vistas previas y descargas solicitan URLs `GET` nuevas; las URLs firmadas nunca se persisten en la base de datos.
+
 ## Desarrollo
 
 En dos terminales:
@@ -108,3 +150,4 @@ La firma se verifica antes de procesar cada evento. Las eliminaciones de Clerk c
 - `transactions.manage`: creación, edición y eliminación de movimientos.
 - `tags.manage`: creación, edición y eliminación de tags.
 - `wallets.share`: generación y uso del resumen compartible.
+- `transactions.files`: carga, vista previa, descarga y eliminación de archivos privados en movimientos; deshabilitada por defecto.

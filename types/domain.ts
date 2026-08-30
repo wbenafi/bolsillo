@@ -1,5 +1,6 @@
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ResolvedFeature } from "@/lib/features";
+import type { TransactionFileType } from "@/lib/transaction-files";
 
 export type Currency = "CRC" | "USD";
 export type TransactionType = "income" | "expense";
@@ -29,6 +30,20 @@ export type WalletTransaction = {
   date: string;
   notes?: string;
   tagIds?: Id<"tags">[];
+  fileCount?: number;
+  files?: TransactionFile[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type TransactionFile = {
+  _id: Id<"transactionFiles">;
+  transactionId?: Id<"transactions">;
+  originalName: string;
+  displayName?: string;
+  mimeType: TransactionFileType;
+  sizeBytes: number;
+  order: number;
   createdAt: number;
   updatedAt: number;
 };

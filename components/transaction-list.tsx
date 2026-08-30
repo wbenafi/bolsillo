@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Paperclip } from "lucide-react";
 
 import { TagChip } from "@/components/tag-chip";
 import { formatTransactionDate } from "@/lib/date";
@@ -11,9 +12,10 @@ type TransactionListProps = {
   tags?: WalletTag[];
   hasActiveFilters?: boolean;
   onClearFilters?: () => void;
+  showFiles?: boolean;
 };
 
-export function TransactionList({ transactions, currency, tags = [], hasActiveFilters = false, onClearFilters }: TransactionListProps) {
+export function TransactionList({ transactions, currency, tags = [], hasActiveFilters = false, onClearFilters, showFiles = false }: TransactionListProps) {
   if (!transactions.length) {
     if (hasActiveFilters) return <div className="empty-movements"><h3>No hay coincidencias</h3><p>Ningún movimiento tiene alguno de los tags seleccionados.</p><button type="button" className="button secondary" onClick={onClearFilters}>Limpiar filtros</button></div>;
     return <div className="empty-movements"><h3>Todavía no hay movimientos</h3><p>Agregá un ingreso o un gasto para comenzar a llevar el saldo de este bolsillo.</p></div>;
@@ -32,6 +34,7 @@ export function TransactionList({ transactions, currency, tags = [], hasActiveFi
           <div className="transaction-copy">
             <h3>{transaction.description}</h3>
             <p>{formatTransactionDate(transaction.date)}{transaction.notes ? ` · ${transaction.notes}` : ""}</p>
+            {showFiles && Boolean(transaction.fileCount) && <span className="transaction-file-indicator"><Paperclip /> {transaction.fileCount} {transaction.fileCount === 1 ? "archivo" : "archivos"}</span>}
             {!!transaction.tagIds?.length && <div className="transaction-tags">{transaction.tagIds.map((tagId) => {
               const tag = tagsById.get(tagId);
               return tag ? <TagChip key={tagId} tag={tag} /> : null;

@@ -1,40 +1,16 @@
 import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
-import { requireAccountContext, requireFeature } from "./auth";
-import { optionalText, requireOwnedWallet, requireText } from "./domain";
-import { transactionTypeValidator } from "./schema";
+import { featureAccess, requireAccountContext, requireFeature } from "./auth";
+import { requireOwnedWallet } from "./domain";
 import { validateAssignedTagIds } from "./tags";
+import { transactionFields, validatedTransactionFields } from "./transactionDomain";
+import { deleteTransactionFiles, publicTransactionFiles } from "./transactionFiles";
 
-const transactionFields = {
-  type: transactionTypeValidator,
-  amountMinor: v.number(),
-  description: v.string(),
-  date: v.string(),
-  notes: v.optional(v.string()),
-  tagIds: v.optional(v.array(v.id("tags"))),
-};
-
-function validatedFields(args: {
-  type: "income" | "expense";
-  amountMinor: number;
-  description: string;
-  date: string;
-  notes?: string;
-}) {
-  if (!Number.isSafeInteger(args.amountMinor) || args.amountMinor <= 0) {
-    throw new ConvexError({ code: "VALIDATION_ERROR", message: "El monto debe ser mayor que cero." });
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date) || Number.isNaN(Date.parse(`${args.date}T00:00:00`))) {
-    throw new ConvexError({ code: "VALIDATION_ERROR", message: "La fecha no es válida." });
-  }
-  return {
-    type: args.type,
-    amountMinor: args.amountMinor,
-    description: requireText(args.description, "La descripción", 100),
-    date: args.date,
-    notes: optionalText(args.notes, 500),
-  };
+function hideFileCount<T extends { fileCount?: number }>(transaction: T) {
+  const visibleTransaction = { ...transaction };
+  delete visibleTransaction.fileCount;
+  return visibleTransaction;
 }
 
 export const listTransactionsByWallet = query({
@@ -42,13 +18,17 @@ export const listTransactionsByWallet = query({
   handler: async (ctx, { walletId }) => {
     const { ownerId, account } = await requireAccountContext(ctx);
     await requireOwnedWallet(ctx, walletId, ownerId, account._id);
-    const transactions = await ctx.db
+    const [transactions, filesFeature] = await Promise.all([
+      ctx.db
       .query("transactions")
       .withIndex("by_wallet", (q) => q.eq("walletId", walletId))
-      .collect();
-    return transactions.sort(
+      .collect(),
+      featureAccess(ctx, account._id, "transactions.files"),
+    ]);
+    const sorted = transactions.sort(
       (a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt,
     );
+    return filesFeature.enabled ? sorted : sorted.map(hideFileCount);
   },
 });
 
@@ -61,7 +41,12 @@ export const getTransaction = query({
       throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
     }
     await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
-    return transaction;
+    const filesFeature = await featureAccess(ctx, account._id, "transactions.files");
+    if (!filesFeature.enabled) return hideFileCount(transaction);
+    return {
+      ...transaction,
+      files: await publicTransactionFiles(ctx, transaction._id),
+    };
   },
 });
 
@@ -79,7 +64,7 @@ export const createTransaction = mutation({
     return await ctx.db.insert("transactions", {
       ownerId,
       walletId: args.walletId,
-      ...validatedFields(args),
+      ...validatedTransactionFields(args),
       tagIds,
       createdAt: now,
       updatedAt: now,
@@ -101,7 +86,7 @@ export const updateTransaction = mutation({
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para editar movimientos." });
     }
     const tagIds = await validateAssignedTagIds(ctx, args.tagIds, transaction.walletId, ownerId);
-    await ctx.db.patch(args.transactionId, { ...validatedFields(args), tagIds, updatedAt: Date.now() });
+    await ctx.db.patch(args.transactionId, { ...validatedTransactionFields(args), tagIds, updatedAt: Date.now() });
   },
 });
 
@@ -115,6 +100,7 @@ export const deleteTransaction = mutation({
       throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
     }
     await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
+    await deleteTransactionFiles(ctx, transaction._id, account._id);
     await ctx.db.delete(transactionId);
   },
 });

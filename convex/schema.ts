@@ -28,6 +28,21 @@ export const accountMemberRoleValidator = v.union(
   v.literal("admin"),
   v.literal("member"),
 );
+export const transactionFileTypeValidator = v.union(
+  v.literal("image/jpeg"),
+  v.literal("image/png"),
+  v.literal("image/webp"),
+  v.literal("application/pdf"),
+  v.literal("text/plain"),
+);
+export const transactionFileStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("ready"),
+);
+export const fileUploadBatchStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("committed"),
+);
 
 export default defineSchema({
   users: defineTable({
@@ -124,6 +139,7 @@ export default defineSchema({
     date: v.string(),
     notes: v.optional(v.string()),
     tagIds: v.optional(v.array(v.id("tags"))),
+    fileCount: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -131,6 +147,56 @@ export default defineSchema({
     .index("by_wallet", ["walletId"])
     .index("by_wallet_date", ["walletId", "date"])
     .index("by_wallet_created", ["walletId", "createdAt"]),
+
+  fileUploadBatches: defineTable({
+    accountId: v.id("accounts"),
+    walletId: v.id("wallets"),
+    targetTransactionId: v.optional(v.id("transactions")),
+    committedTransactionId: v.optional(v.id("transactions")),
+    createdByUserId: v.id("users"),
+    status: fileUploadBatchStatusValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_expiration", ["expiresAt"]),
+
+  transactionFiles: defineTable({
+    accountId: v.id("accounts"),
+    walletId: v.id("wallets"),
+    transactionId: v.optional(v.id("transactions")),
+    uploadBatchId: v.id("fileUploadBatches"),
+    createdByUserId: v.id("users"),
+    objectKey: v.string(),
+    originalName: v.string(),
+    displayName: v.optional(v.string()),
+    mimeType: transactionFileTypeValidator,
+    sizeBytes: v.number(),
+    order: v.number(),
+    status: transactionFileStatusValidator,
+    etag: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    expiresAt: v.optional(v.number()),
+  })
+    .index("by_transaction", ["transactionId", "order"])
+    .index("by_wallet", ["walletId"])
+    .index("by_batch", ["uploadBatchId"])
+    .index("by_account", ["accountId"]),
+
+  r2DeletionJobs: defineTable({
+    accountId: v.id("accounts"),
+    objectKey: v.string(),
+    reason: v.string(),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_next_attempt", ["nextAttemptAt"]),
 
   tags: defineTable({
     ownerId: v.string(),
