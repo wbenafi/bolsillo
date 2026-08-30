@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  allowedDevOrigins: ["wbox.tail6bacda.ts.net"],
 };
 
 export default nextConfig;

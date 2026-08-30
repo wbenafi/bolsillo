@@ -69,3 +69,42 @@ npm run build
 Los Preview Deployments ejecutan únicamente el build de Next.js. Para darles un backend Convex aislado, configurá adicionalmente una Preview Deploy Key siguiendo la guía oficial de Convex.
 
 Las rutas `/sign-in` y `/sign-up` son públicas. El resto queda protegido por Clerk en `proxy.ts` y cada query o mutation vuelve a comprobar identidad y propiedad en Convex.
+
+## Superadmin y control de acceso
+
+Bolsillo mantiene en Convex un registro local de usuarios y cuentas. Cada usuario de Clerk recibe una cuenta personal; los bolsillos nuevos se vinculan a esa cuenta y los registros históricos se migran de forma idempotente.
+
+Para crear el primer superadmin en un deployment:
+
+```bash
+npx convex env set SUPERADMIN_CLERK_USER_IDS user_xxx
+```
+
+Después, iniciá sesión una vez. `users.ensureCurrent` persistirá el rol `superadmin` en Convex. Confirmá el acceso a `/superadmin` y eliminá la variable de bootstrap:
+
+```bash
+npx convex env remove SUPERADMIN_CLERK_USER_IDS
+```
+
+Desde `/superadmin` se pueden suspender o reactivar cuentas, administrar roles de plataforma, configurar acceso por función, aplicar límites de bolsillos y consultar la auditoría. Las restricciones se validan nuevamente en las funciones de Convex; la interfaz solo refleja el resultado.
+
+### Sincronización con Clerk
+
+La sesión crea o actualiza la cuenta actual de forma síncrona. Para mantener nombre, correo, avatar y eliminaciones actualizados aunque el usuario no vuelva a iniciar sesión, configurá también un webhook de Clerk:
+
+1. En Clerk, creá un endpoint `https://<deployment>.convex.site/clerk-users-webhook`.
+2. Suscribilo a `user.created`, `user.updated` y `user.deleted`.
+3. Guardá su signing secret en el deployment de Convex:
+
+```bash
+npx convex env set CLERK_WEBHOOK_SIGNING_SECRET whsec_xxx
+```
+
+La firma se verifica antes de procesar cada evento. Las eliminaciones de Clerk conservan los datos financieros y suspenden la cuenta correspondiente.
+
+### Funciones administrables
+
+- `wallets.create`: creación y restauración de bolsillos; admite un límite de bolsillos activos.
+- `transactions.manage`: creación, edición y eliminación de movimientos.
+- `tags.manage`: creación, edición y eliminación de tags.
+- `wallets.share`: generación y uso del resumen compartible.

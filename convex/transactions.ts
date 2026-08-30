@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
-import { requireOwnerId } from "./auth";
+import { requireAccountContext, requireFeature } from "./auth";
 import { optionalText, requireOwnedWallet, requireText } from "./domain";
 import { transactionTypeValidator } from "./schema";
 import { validateAssignedTagIds } from "./tags";
@@ -40,8 +40,8 @@ function validatedFields(args: {
 export const listTransactionsByWallet = query({
   args: { walletId: v.id("wallets") },
   handler: async (ctx, { walletId }) => {
-    const ownerId = await requireOwnerId(ctx);
-    await requireOwnedWallet(ctx, walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireOwnedWallet(ctx, walletId, ownerId, account._id);
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_wallet", (q) => q.eq("walletId", walletId))
@@ -55,12 +55,12 @@ export const listTransactionsByWallet = query({
 export const getTransaction = query({
   args: { transactionId: v.id("transactions") },
   handler: async (ctx, { transactionId }) => {
-    const ownerId = await requireOwnerId(ctx);
+    const { ownerId, account } = await requireAccountContext(ctx);
     const transaction = await ctx.db.get(transactionId);
     if (!transaction || transaction.ownerId !== ownerId) {
       throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
     }
-    await requireOwnedWallet(ctx, transaction.walletId, ownerId);
+    await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
     return transaction;
   },
 });
@@ -68,8 +68,9 @@ export const getTransaction = query({
 export const createTransaction = mutation({
   args: { walletId: v.id("wallets"), ...transactionFields },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwnerId(ctx);
-    const wallet = await requireOwnedWallet(ctx, args.walletId, ownerId);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireFeature(ctx, account._id, "transactions.manage");
+    const wallet = await requireOwnedWallet(ctx, args.walletId, ownerId, account._id);
     if (wallet.archivedAt) {
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para agregar movimientos." });
     }
@@ -89,12 +90,13 @@ export const createTransaction = mutation({
 export const updateTransaction = mutation({
   args: { transactionId: v.id("transactions"), ...transactionFields },
   handler: async (ctx, args) => {
-    const ownerId = await requireOwnerId(ctx);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireFeature(ctx, account._id, "transactions.manage");
     const transaction = await ctx.db.get(args.transactionId);
     if (!transaction || transaction.ownerId !== ownerId) {
       throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
     }
-    const wallet = await requireOwnedWallet(ctx, transaction.walletId, ownerId);
+    const wallet = await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
     if (wallet.archivedAt) {
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para editar movimientos." });
     }
@@ -106,12 +108,13 @@ export const updateTransaction = mutation({
 export const deleteTransaction = mutation({
   args: { transactionId: v.id("transactions") },
   handler: async (ctx, { transactionId }) => {
-    const ownerId = await requireOwnerId(ctx);
+    const { ownerId, account } = await requireAccountContext(ctx);
+    await requireFeature(ctx, account._id, "transactions.manage");
     const transaction = await ctx.db.get(transactionId);
     if (!transaction || transaction.ownerId !== ownerId) {
       throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
     }
-    await requireOwnedWallet(ctx, transaction.walletId, ownerId);
+    await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
     await ctx.db.delete(transactionId);
   },
 });

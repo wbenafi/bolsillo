@@ -1,4 +1,5 @@
 import type { Id } from "@/convex/_generated/dataModel";
+import type { ResolvedFeature } from "@/lib/features";
 
 export type Currency = "CRC" | "USD";
 export type TransactionType = "income" | "expense";
@@ -41,4 +42,22 @@ export type WalletTag = {
   usageCount: number;
   createdAt: number;
   updatedAt: number;
+};
+
+export type Viewer = {
+  user: {
+    _id: Id<"users">;
+    externalId: string;
+    name?: string;
+    email?: string;
+    imageUrl?: string;
+    platformRole: "member" | "superadmin";
+  };
+  account: {
+    _id: Id<"accounts">;
+    name: string;
+    status: "active" | "suspended";
+    suspendedReason?: string;
+  };
+  features: ResolvedFeature[];
 };
