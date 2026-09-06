@@ -34,7 +34,19 @@ function requiredEnvironment(name: string) {
 }
 
 function r2Configuration() {
-  const accountId = requiredEnvironment("R2_ACCOUNT_ID");
+  const localEndpoint = process.env.R2_LOCAL_ENDPOINT?.trim() || undefined;
+  // The override is deliberately restricted to loopback storage for local development.
+  if (localEndpoint) {
+    const url = new URL(localEndpoint);
+    if (
+      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username || url.password || url.search || url.hash || url.pathname !== "/"
+    ) {
+      throw new Error("R2_LOCAL_ENDPOINT debe ser un origen de localhost sin ruta ni credenciales.");
+    }
+  }
+  const endpoint = localEndpoint ?? `https://${requiredEnvironment("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`;
   const bucket = requiredEnvironment("R2_BUCKET_NAME");
   const accessKeyId = requiredEnvironment("R2_ACCESS_KEY_ID");
   const secretAccessKey = requiredEnvironment("R2_SECRET_ACCESS_KEY");
@@ -47,7 +59,8 @@ function r2Configuration() {
     expiresIn,
     client: new S3Client({
       region: "auto",
-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+      endpoint,
+      forcePathStyle: Boolean(localEndpoint),
       credentials: { accessKeyId, secretAccessKey },
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",

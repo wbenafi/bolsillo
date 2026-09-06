@@ -42,6 +42,9 @@ Convex toma el propietario exclusivamente de `ctx.auth.getUserIdentity().subject
 
 La función `transactions.files` permite adjuntar hasta cinco archivos JPG, PNG, WebP, PDF o TXT de 2 MB cada uno. Está deshabilitada por defecto y solo un superadmin puede habilitarla por cuenta.
 
+Antes del merge, seguí la [guía de configuración de producción](docs/transaction-files-production.md):
+bucket privado, CORS, variables de Convex y Vercel, y activación por cuenta después del deploy.
+
 ### Crear los buckets
 
 Usá buckets separados para desarrollo y producción. Los buckets deben permanecer privados:
@@ -90,6 +93,129 @@ npm run dev
 ```
 
 La app estará disponible en `http://localhost:3000`.
+
+### Probar transaction files R2 localmente
+
+Podés probar sin cuenta ni credenciales de Cloudflare usando **MinIO + Convex
+local**. MinIO implementa la API S3 que usa el feature, incluidas las URLs firmadas.
+Es una prueba de compatibilidad S3; la integración final con R2 se verifica contra
+un bucket real de desarrollo. Clerk sigue usando tu instancia configurada y requiere
+conexión a Internet.
+
+El instalador incluido funciona en **Linux x64**, sin Docker. Descarga una versión
+fija de [MinIO Community (AGPLv3)](https://dl.min.io/server/minio/release/linux-amd64/)
+y verifica su SHA-256 antes de ejecutarla. Convex usa Node.js 22 para sus acciones.
+
+Primera vez, con Clerk y `CLERK_JWT_ISSUER_DOMAIN` completos en `.env.local`:
+
+```bash
+npx convex deployment create local --select
+```
+
+Si ya existe un deployment local, usá `npx convex deployment select local`.
+La selección actualiza las URLs de Convex en `.env.local`. La base local empieza
+vacía y conserva sus propios datos, separados del deployment cloud.
+Más información: [deployments locales de Convex](https://docs.convex.dev/cli/local-deployments).
+
+Detené los servidores de desarrollo anteriores y arrancá todo con:
+
+```bash
+npm run dev:local
+```
+
+El comando inicia MinIO, crea el bucket privado `bolsillo-files-local` si no existe,
+configura CORS y las variables del backend local, espera a que Convex compile e
+inicia Next.js. Rechaza deployments cloud y puertos ocupados. `Ctrl+C` detiene los
+tres servicios; los datos persisten entre arranques.
+
+| Servicio | Dirección / almacenamiento |
+| --- | --- |
+| App | `http://localhost:3000` |
+| Convex local | `http://127.0.0.1:3210` (puerto asignado por Convex) |
+| API S3 local | `http://127.0.0.1:9000` |
+| Consola MinIO | `http://127.0.0.1:9001` |
+| Archivos | `.local/minio/` |
+| Base de datos | `.convex/` |
+
+La consola MinIO usa `bolsillo-local` / `bolsillo-local-testing-only`: son
+credenciales fijas **solo de testing local**, y MinIO escucha únicamente en
+loopback. CORS permite `http://localhost:3000` y `http://127.0.0.1:3000`.
+`.local/` y `.convex/` están excluidos de Git.
+
+Con los servicios corriendo, habilitá los adjuntos para tu correo registrado en Clerk:
+
+```bash
+npm run local:enable-files -- tu-correo@example.com
+```
+
+Este comando consulta el usuario en Clerk, crea/actualiza su cuenta en Convex
+**local**, le da rol superadmin local y habilita `transactions.files` usando la
+mutación administrativa existente. No cambia roles en Clerk ni en Convex cloud.
+También podés habilitar otras cuentas desde `/superadmin`.
+
+En la app, creá un bolsillo y un movimiento, adjuntá un TXT, PDF o imagen de hasta
+2 MB, guardalo y probá vista previa, descarga, renombre y eliminación. Hay una
+prueba automatizada contra los servicios reales locales:
+
+```bash
+npm run test:local-files
+```
+
+Verifica límites, CORS, carga, validación en Convex, descarga, firmas, acceso
+privado, protección contra sobrescritura, renombre y borrado físico. Crea una
+cuenta técnica local y elimina el bolsillo y movimiento de prueba al terminar.
+
+### Informe de pruebas con videos
+
+Con `npm run dev:local` corriendo, ejecutá:
+
+```bash
+npx playwright install chromium
+npm run test:files:report
+```
+
+El recorrido usa una cuenta dedicada `bolsillo.qa+clerk_test@example.com`,
+comprobantes ficticios y Chromium. Crea diez videos WebM, capturas, descargas
+verificadas y un informe HTML en `output/transaction-files-qa/<fecha>/`.
+`output/transaction-files-qa/index.html` abre el último informe. Los datos de
+demostración permanecen en la cuenta QA para poder revisarlos; los escenarios de
+borrado eliminan sus propios movimientos y archivos.
+
+Se verifican los cinco formatos, persistencia, vistas previas, descargas, edición,
+arrastre, cancelación, límites, contenido inválido, reintentos, permisos, móvil,
+eliminación de movimientos y eliminación de bolsillos. También se comprueban
+firmas, expiración y aislamiento entre cuentas contra el almacenamiento local.
+
+El comando inicia y detiene un relay HTTP exclusivo para las solicitudes reales
+a Clerk, limitado a loopback y al dominio de desarrollo configurado. Resuelve el
+dominio antes de abrir Chromium para evitar errores intermitentes de DNS en el
+entorno de QA. La app, Convex y MinIO reciben las solicitudes de los escenarios
+directamente; las respuestas de autenticación no se simulan. Las sesiones y
+credenciales no se guardan en el informe.
+
+Podés abrir el HTML directamente o servir la carpeta:
+
+```bash
+python3 -m http.server 4173 --bind 127.0.0.1 --directory output/transaction-files-qa
+```
+
+El informe quedará en `http://localhost:4173`.
+
+Para volver a Convex cloud, detené `dev:local` y ejecutá:
+
+```bash
+npx convex deployment select dev
+npm run convex:dev
+# En otra terminal:
+npm run dev
+```
+
+Para probar con R2 real desde localhost, configurá las variables `R2_*` en el
+deployment cloud como se describe arriba y aplicá `r2/cors.local.json` al bucket
+dedicado con `npx wrangler r2 bucket cors set bolsillo-files-dev --file r2/cors.local.json`.
+Ese comando reemplaza la política CORS: conservá los otros orígenes si compartís
+el bucket. Escribir variables solamente en `.env.local` no las configura en Convex.
+`R2_LOCAL_ENDPOINT` es exclusivo del emulador local y no debe configurarse en cloud.
 
 ## Verificación
 

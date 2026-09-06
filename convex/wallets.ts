@@ -5,6 +5,7 @@ import type { Doc } from "./_generated/dataModel";
 import { requireAccountContext, requireFeature } from "./auth";
 import { optionalText, requireOwnedWallet, requireText } from "./domain";
 import { currencyValidator } from "./schema";
+import { deleteTransactionFiles } from "./transactionFiles";
 
 async function walletSummary(
   ctx: Parameters<typeof requireOwnedWallet>[0],
@@ -178,7 +179,10 @@ export const deleteWallet = mutation({
       .query("tags")
       .withIndex("by_wallet", (q) => q.eq("walletId", walletId))
       .collect();
-    await Promise.all(transactions.map((transaction) => ctx.db.delete(transaction._id)));
+    await Promise.all(transactions.map(async (transaction) => {
+      await deleteTransactionFiles(ctx, transaction._id, account._id);
+      await ctx.db.delete(transaction._id);
+    }));
     await Promise.all(tags.map((tag) => ctx.db.delete(tag._id)));
     await ctx.db.delete(walletId);
   },

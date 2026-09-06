@@ -29,6 +29,41 @@ async function promoteToSuperadmin(t: TestConvex<typeof schema>, externalId: str
 }
 
 describe("transaction files", () => {
+  it("queues attached objects for deletion when their wallet is deleted", async () => {
+    const t = convexTest(schema, modules);
+    const { asUser, viewer } = await registeredUser(t, "wallet_files_owner");
+    await promoteToSuperadmin(t, "wallet_files_owner");
+    await asUser.mutation(api.superadmin.setFeatureOverride, {
+      accountId: viewer.account._id,
+      featureKey: "transactions.files",
+      enabled: true,
+    });
+    const walletId = await asUser.mutation(api.wallets.createWallet, { name: "Comprobantes", currency: "CRC" });
+    const batch = await asUser.mutation(api.transactionFiles.beginUpload, {
+      walletId,
+      retainedFileIds: [],
+      files: [{ originalName: "nota.txt", mimeType: "text/plain", sizeBytes: 24, order: 0 }],
+    });
+    const transactionId = await asUser.mutation(internal.transactionFiles.commitUploadBatch, {
+      batchId: batch.batchId,
+      retainedFiles: [],
+      verifiedFiles: [{ fileId: batch.fileIds[0], sizeBytes: 24 }],
+      type: "expense", amountMinor: 100, description: "Prueba", date: "2026-09-05",
+    });
+    await asUser.mutation(api.wallets.archiveWallet, { walletId });
+    await asUser.mutation(api.wallets.deleteWallet, { walletId });
+    const deleted = await t.run(async (ctx) => ({
+      wallet: await ctx.db.get(walletId),
+      transaction: await ctx.db.get(transactionId),
+      file: await ctx.db.get(batch.fileIds[0]),
+      jobs: await ctx.db.query("r2DeletionJobs").collect(),
+    }));
+    expect(deleted.wallet).toBeNull();
+    expect(deleted.transaction).toBeNull();
+    expect(deleted.file).toBeNull();
+    expect(deleted.jobs).toHaveLength(1);
+  });
+
   it("is denied by default and can be enabled by a superadmin", async () => {
     const t = convexTest(schema, modules);
     const { asUser: asAdmin } = await registeredUser(t, "files_admin");

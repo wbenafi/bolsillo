@@ -47,3 +47,5 @@ next-env.d.ts
 /outputs/
 /work/
 /r2/cors.json
+/.local/
+/.convex/

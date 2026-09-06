@@ -7,6 +7,10 @@
   },
   "scripts": {
     "dev": "next dev",
+    "dev:local": "node scripts/dev-local.mjs",
+    "local:enable-files": "node scripts/enable-local-files.mjs",
+    "test:local-files": "node scripts/test-local-files.mjs",
+    "test:files:report": "node scripts/qa/run.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -43,6 +47,7 @@
     "convex-test": "^0.0.56",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "sharp": "0.34.5",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vitest": "^4.0.4"
