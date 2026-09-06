@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "convex/_generated/**",
     "next-env.d.ts",
+    ".local/**",
+    ".convex/**",
   ]),
 ]);
 

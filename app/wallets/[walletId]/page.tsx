@@ -29,6 +29,7 @@ export default function WalletDetailPage() {
   const canManageTransactions = useFeature("transactions.manage");
   const canManageTags = useFeature("tags.manage");
   const canShare = useFeature("wallets.share");
+  const canManageFiles = useFeature("transactions.files");
 
   if (wallet === null) notFound();
   if (!wallet || !transactions || !tags) return <main className="page-shell"><LoadingState label="Calculando tu saldo…" /></main>;
@@ -97,7 +98,7 @@ export default function WalletDetailPage() {
             {hasActiveFilters && <button type="button" className="clear-filters" onClick={() => setTagFilters([])}>Limpiar filtros</button>}
           </div>
         )}
-        <TransactionList transactions={filteredTransactions} currency={wallet.currency} tags={tags} hasActiveFilters={hasActiveFilters} onClearFilters={() => setTagFilters([])} />
+        <TransactionList transactions={filteredTransactions} currency={wallet.currency} tags={tags} hasActiveFilters={hasActiveFilters} onClearFilters={() => setTagFilters([])} showFiles={canManageFiles} />
       </section>
     </main>
   );

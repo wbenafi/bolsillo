@@ -143,7 +143,7 @@ export default function AccountDetailPage() {
       </section>
 
       <section className="admin-section">
-        <div className="admin-section-heading"><div><p className="eyebrow">Entitlements</p><h3>Acceso a funciones</h3></div><p>Sin configuración personalizada, todas las funciones permanecen habilitadas.</p></div>
+        <div className="admin-section-heading"><div><p className="eyebrow">Entitlements</p><h3>Acceso a funciones</h3></div><p>Cada función usa su valor predeterminado si no tiene una configuración personalizada.</p></div>
         <div className="feature-list">
           {detail.features.map((feature) => {
             const definition = detail.featureDefinitions.find(({ key }) => key === feature.key)!;
