@@ -335,6 +335,51 @@ await scenario('10-bolsillo-archivado','Archivar, restaurar y eliminar un bolsil
   page.once('dialog',async d=>{assert.match(d.message(),/archivos/);await delay(800);await d.accept();});await card.getByRole('button',{name:`Eliminar ${name}`,exact:true}).click();await expect(card).toHaveCount(0);await waitDeleted(keysFor(files));
   r.checks.push('Archivar preserva el adjunto.', 'Restaurar permite volver a visualizarlo.', 'Eliminar el bolsillo borra físicamente el archivo.', 'La confirmación advierte sobre los adjuntos.');
 });
+await scenario('11-edicion-concurrente', 'Edición desde dos pestañas', 'Conservar adjuntos agregados en otra pestaña y rechazar cambios de archivos basados en una versión anterior.', async (page, r) => {
+  const id = wallet('Concurrencia');
+  await form(page, id, 'Movimiento concurrente');
+  await attach(page, ['detalle.txt']);
+  await save(page, id);
+  const tx = list(id)[0];
+  await edit(page, id, 'Movimiento concurrente');
+  const other = await page.context().newPage();
+  try {
+    await edit(other, id, 'Movimiento concurrente');
+    await attach(other, ['comprobante.png']);
+    await save(other, id, true);
+    await page.waitForTimeout(1000); // Let the first tab receive the reactive update.
+    await step(page, r, 'Otra pestaña agregó una imagen; guardar solo la descripción conserva ambos archivos');
+    await page.getByLabel('Descripción', { exact: true }).fill('Descripción actualizada');
+    await save(page, id, true);
+    assert.equal(run('transactionFiles:listByTransaction', { transactionId: tx._id }).length, 2);
+
+    await edit(page, id, 'Descripción actualizada');
+    await edit(other, id, 'Descripción actualizada');
+    await other.getByPlaceholder('detalle.txt', { exact: true }).fill('Nota renombrada');
+    await save(other, id, true);
+    await page.waitForTimeout(1000);
+    await step(page, r, 'La otra pestaña renombró el TXT; se rechaza eliminarlo desde la versión anterior');
+    await page.getByRole('button', { name: 'Quitar detalle.txt', exact: true }).click();
+    await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Notifications alt+T' }).getByText('Los archivos cambiaron en otra pestaña o sesión.', { exact: false })).toBeVisible();
+    await shot(page, r, 'conflicto');
+    assert.equal(run('transactionFiles:listByTransaction', { transactionId: tx._id }).length, 2);
+    await attach(page, ['adicional.txt']);
+    await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Guardar cambios', exact: true })).toBeEnabled();
+    assert.equal(run('transactionFiles:listByTransaction', { transactionId: tx._id }).length, 2);
+
+    await page.reload();
+    await expect(page.getByPlaceholder('detalle.txt', { exact: true })).toHaveValue('Nota renombrada');
+    await step(page, r, 'Volver a abrir el movimiento permite eliminar intencionalmente desde la versión actual');
+    await page.getByRole('button', { name: 'Quitar Nota renombrada', exact: true }).click();
+    await save(page, id, true);
+    const remaining = run('transactionFiles:listByTransaction', { transactionId: tx._id });
+    assert.deepEqual(remaining.map(file => file.originalName), ['comprobante.png']);
+    r.checks.push('Guardar otros campos conserva adjuntos externos.', 'Un renombre externo invalida la edición anterior.', 'No se pierden archivos al rechazar un guardado o carga.', 'Reabrir permite guardar la eliminación intencional.');
+  } finally { await other.close(); }
+});
+
 report.findings.push({title:'Corregido: adjuntos huérfanos al eliminar un bolsillo',detail:'La eliminación definitiva de un bolsillo archivado borraba movimientos pero conservaba los archivos. Se agregó limpieza en cascada, se actualizó la confirmación y se añadió una prueba de regresión. El escenario 10 verifica el resultado contra MinIO.'});
 
 // Storage and authorization evidence independent of browser UI.

@@ -140,6 +140,7 @@ export default defineSchema({
     notes: v.optional(v.string()),
     tagIds: v.optional(v.array(v.id("tags"))),
     fileCount: v.optional(v.number()),
+    fileRevision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -152,6 +153,7 @@ export default defineSchema({
     accountId: v.id("accounts"),
     walletId: v.id("wallets"),
     targetTransactionId: v.optional(v.id("transactions")),
+    expectedFileRevision: v.optional(v.number()),
     committedTransactionId: v.optional(v.id("transactions")),
     createdByUserId: v.id("users"),
     status: fileUploadBatchStatusValidator,

@@ -1,5 +1,6 @@
 "use node";
 
+import { Readable } from "node:stream";
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -14,6 +15,7 @@ import type { Id } from "./_generated/dataModel";
 import { action, internalAction } from "./_generated/server";
 import { transactionFields } from "./transactionDomain";
 import { contentMatchesFileType } from "../lib/transaction-file-content";
+import { readTransactionFileBody } from "../lib/read-transaction-file-body";
 import { MAX_TRANSACTION_FILE_BYTES, type TransactionFileType } from "../lib/transaction-files";
 
 const retainedFileValidator = v.object({
@@ -130,8 +132,8 @@ async function verifiedR2File(
   const response = await client.send(
     new GetObjectCommand({ Bucket: bucket, Key: file.objectKey }),
   );
-  if (!response.Body) fileError(`No se pudo leer ${file.originalName}.`);
-  const bytes = await response.Body.transformToByteArray();
+  if (!(response.Body instanceof Readable)) fileError(`No se pudo leer ${file.originalName}.`);
+  const bytes = await readTransactionFileBody(response.Body, response.ContentLength, file.sizeBytes);
   const contentType = response.ContentType?.split(";", 1)[0]?.trim().toLocaleLowerCase("en");
   if (
     bytes.length < 1 ||

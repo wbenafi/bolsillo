@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import type { TestConvex } from "convex-test";
 import { describe, expect, it } from "vitest";
 
+import type { Id } from "./_generated/dataModel";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
@@ -173,6 +174,7 @@ describe("transaction files", () => {
     });
     const hidden = await asMember.query(api.transactions.getTransaction, { transactionId });
     expect(hidden).not.toHaveProperty("fileCount");
+    expect(hidden).not.toHaveProperty("fileRevision");
     expect(hidden).not.toHaveProperty("files");
     await expect(
       asMember.query(api.transactionFiles.listByTransaction, { transactionId }),
@@ -257,5 +259,89 @@ describe("transaction files", () => {
       "factura.pdf",
       "detalle.txt",
     ]);
+  });
+});
+
+const editFields = { type: "expense" as const, amountMinor: 100, description: "Original", date: "2026-09-12" };
+
+async function editableTransaction() {
+  const t = convexTest(schema, modules);
+  const { asUser, viewer } = await registeredUser(t, "concurrent_owner");
+  await promoteToSuperadmin(t, "concurrent_owner");
+  await asUser.mutation(api.superadmin.setFeatureOverride, {
+    accountId: viewer.account._id, featureKey: "transactions.files", enabled: true,
+  });
+  const walletId = await asUser.mutation(api.wallets.createWallet, { name: "Concurrent", currency: "CRC" });
+  const transactionId = await asUser.mutation(api.transactions.createTransaction, { walletId, ...editFields });
+  const begin = (expectedFileRevision: number, retainedFileIds: Id<"transactionFiles">[] = [], order = 0) =>
+    asUser.mutation(api.transactionFiles.beginUpload, {
+      walletId, transactionId, expectedFileRevision, retainedFileIds,
+      files: [{ originalName: "nota.txt", mimeType: "text/plain", sizeBytes: 24, order }],
+    });
+  const commit = (batch: { batchId: Id<"fileUploadBatches">; fileIds: Id<"transactionFiles">[] }) =>
+    asUser.mutation(internal.transactionFiles.commitUploadBatch, {
+      batchId: batch.batchId, retainedFiles: [],
+      verifiedFiles: batch.fileIds.map(fileId => ({ fileId, sizeBytes: 24 })), ...editFields,
+    });
+  return { t, asUser, walletId, transactionId, begin, commit };
+}
+
+describe("attachment edit concurrency", () => {
+  it("preserves externally added files when a stale form saves ordinary transaction fields", async () => {
+    const { asUser, transactionId, begin, commit } = await editableTransaction();
+    const batch = await begin(0);
+    await commit(batch);
+    await asUser.mutation(api.transactions.updateTransaction, { transactionId, ...editFields, description: "Edited description" });
+    const saved = await asUser.query(api.transactions.getTransaction, { transactionId });
+    expect(saved).toMatchObject({ description: "Edited description", fileRevision: 1, fileCount: 1 });
+    expect(await asUser.query(api.transactionFiles.listByTransaction, { transactionId })).toHaveLength(1);
+  });
+
+  it("rejects stale removals and stale uploads without deleting an externally added file", async () => {
+    const { t, asUser, transactionId, begin, commit } = await editableTransaction();
+    const batch = await begin(0);
+    await commit(batch);
+    await expect(asUser.mutation(api.transactionFiles.updateTransactionWithFiles, {
+      transactionId, expectedFileRevision: 0, files: [], ...editFields, description: "Stale save",
+    })).rejects.toThrow("otra pestaña");
+    await expect(begin(0)).rejects.toThrow("otra pestaña");
+    expect(await asUser.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ description: "Original", fileCount: 1 });
+    expect(await t.run(ctx => ctx.db.query("r2DeletionJobs").collect())).toHaveLength(0);
+    expect(await t.run(ctx => ctx.db.get(batch.fileIds[0]))).not.toBeNull();
+  });
+
+  it("rechecks the revision at finalization when another upload committed in the meantime", async () => {
+    const { t, asUser, transactionId, begin, commit } = await editableTransaction();
+    const first = await begin(0);
+    const second = await begin(0);
+    await commit(first);
+    await expect(commit(second)).rejects.toThrow("otra pestaña");
+    expect(await t.run(ctx => ctx.db.get(second.fileIds[0]))).toMatchObject({ status: "pending" });
+    expect(await t.run(ctx => ctx.db.query("r2DeletionJobs").collect())).toHaveLength(0);
+    // The failed form can abort just its own upload, leaving the winner intact.
+    await asUser.mutation(api.transactionFiles.abortUpload, { batchId: second.batchId });
+    expect(await asUser.query(api.transactionFiles.listByTransaction, { transactionId })).toMatchObject([{ _id: first.fileIds[0] }]);
+    expect(await commit(first)).toBe(transactionId); // Committed retries stay idempotent.
+  });
+
+  it("rejects edits after a concurrent rename, then allows intentional deletion from the fresh revision", async () => {
+    const { t, asUser, transactionId, begin, commit } = await editableTransaction();
+    const batch = await begin(0);
+    await commit(batch);
+    const files = [{ fileId: batch.fileIds[0], displayName: "Renamed elsewhere", order: 0 }];
+    await asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 1, files, ...editFields });
+    await expect(asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 1, files: [], ...editFields })).rejects.toThrow("otra pestaña");
+    expect(await asUser.query(api.transactionFiles.listByTransaction, { transactionId })).toMatchObject([{ displayName: "Renamed elsewhere" }]);
+    await asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 2, files: [], ...editFields });
+    expect(await asUser.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ fileCount: 0, fileRevision: 3 });
+    expect(await t.run(ctx => ctx.db.query("r2DeletionJobs").collect())).toHaveLength(1);
+  });
+
+  it("rejects upload edits from old clients that omit the revision", async () => {
+    const { asUser, walletId, transactionId } = await editableTransaction();
+    await expect(asUser.mutation(api.transactionFiles.beginUpload, {
+      walletId, transactionId, retainedFileIds: [],
+      files: [{ originalName: "nota.txt", mimeType: "text/plain", sizeBytes: 24, order: 0 }],
+    })).rejects.toThrow("otra pestaña");
   });
 });

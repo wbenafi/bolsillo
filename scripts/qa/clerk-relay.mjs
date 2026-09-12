@@ -5,7 +5,7 @@ import { localEnvironment } from '../local-config.mjs';
 const origin = new URL(localEnvironment().CLERK_JWT_ISSUER_DOMAIN).origin;
 const host = new URL(origin).hostname;
 const addresses = await dns.lookup(host, { all: true });
-const address = addresses.find(a=>a.family===6) ?? addresses[0];
+const address = addresses.find(a=>a.family===Number(process.env.QA_RELAY_FAMILY ?? 6)) ?? addresses[0];
 // Resolve before Chromium starts; Tailscale DNS is unreliable during browser QA.
 // TLS still verifies the original Clerk hostname and all responses are real.
 const agent = new Agent({keepAlive:true,lookup:(_host,options,callback)=>{

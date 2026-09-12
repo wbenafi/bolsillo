@@ -53,6 +53,12 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
   const canManageFiles = useFeature("transactions.files");
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  // Keep the attachment baseline paired with the draft, even when Convex pushes
+  // newer props. The server checks this revision atomically before any deletion.
+  const [fileBaseline] = useState(() => ({
+    files: transaction?.files ?? [],
+    revision: transaction?.fileRevision ?? 0,
+  }));
   const [files, setFiles] = useState<TransactionFileDraft[]>(() => initialFileDrafts(transaction));
   const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema),
@@ -70,7 +76,7 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
 
   const storedFiles = files.filter((file): file is StoredTransactionFileDraft => file.kind === "stored");
   const localFiles = files.filter((file): file is LocalTransactionFileDraft => file.kind === "local");
-  const originalFiles = transaction?.files ?? [];
+  const originalFiles = fileBaseline.files;
   const existingFilesChanged = transaction
     ? storedFiles.length !== originalFiles.length || storedFiles.some((file) => {
         const original = originalFiles.find(({ _id }) => _id === file._id);
@@ -130,6 +136,7 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
         const batch = await beginFileUpload({
           walletId,
           transactionId: transaction?._id,
+          expectedFileRevision: transaction ? fileBaseline.revision : undefined,
           retainedFileIds: retainedFiles.map(({ fileId }) => fileId),
           files: localFiles.map((file) => ({
             originalName: file.originalName,
@@ -161,7 +168,7 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
         await finalizeUpload({ batchId, retainedFiles, ...payload });
       } else if (transaction) {
         if (canManageFiles && existingFilesChanged) {
-          await updateTransactionWithFiles({ transactionId: transaction._id, files: retainedFiles, ...payload });
+          await updateTransactionWithFiles({ transactionId: transaction._id, expectedFileRevision: fileBaseline.revision, files: retainedFiles, ...payload });
         } else {
           await updateTransaction({ transactionId: transaction._id, ...payload });
         }

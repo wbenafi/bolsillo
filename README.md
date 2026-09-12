@@ -175,7 +175,7 @@ npm run test:files:report
 ```
 
 El recorrido usa una cuenta dedicada `bolsillo.qa+clerk_test@example.com`,
-comprobantes ficticios y Chromium. Crea diez videos WebM, capturas, descargas
+comprobantes ficticios y Chromium. Crea once videos WebM, capturas, descargas
 verificadas y un informe HTML en `output/transaction-files-qa/<fecha>/`.
 `output/transaction-files-qa/index.html` abre el último informe. Los datos de
 demostración permanecen en la cuenta QA para poder revisarlos; los escenarios de
@@ -183,7 +183,8 @@ borrado eliminan sus propios movimientos y archivos.
 
 Se verifican los cinco formatos, persistencia, vistas previas, descargas, edición,
 arrastre, cancelación, límites, contenido inválido, reintentos, permisos, móvil,
-eliminación de movimientos y eliminación de bolsillos. También se comprueban
+eliminación de movimientos, eliminación de bolsillos y edición concurrente desde
+dos pestañas. También se comprueban
 firmas, expiración y aislamiento entre cuentas contra el almacenamiento local.
 
 El comando inicia y detiene un relay HTTP exclusivo para las solicitudes reales
@@ -192,6 +193,9 @@ dominio antes de abrir Chromium para evitar errores intermitentes de DNS en el
 entorno de QA. La app, Convex y MinIO reciben las solicitudes de los escenarios
 directamente; las respuestas de autenticación no se simulan. Las sesiones y
 credenciales no se guardan en el informe.
+
+Si el relay no logra conectarse por IPv6, usá
+`QA_RELAY_FAMILY=4 npm run test:files:report` para probar con IPv4.
 
 Podés abrir el HTML directamente o servir la carpeta:
 

@@ -31,6 +31,7 @@ export type WalletTransaction = {
   notes?: string;
   tagIds?: Id<"tags">[];
   fileCount?: number;
+  fileRevision?: number;
   files?: TransactionFile[];
   createdAt: number;
   updatedAt: number;

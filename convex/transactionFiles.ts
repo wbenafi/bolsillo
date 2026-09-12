@@ -103,6 +103,17 @@ async function readyFilesForTransaction(
   return files.filter((file) => file.status === "ready");
 }
 
+function requireFileRevision(transaction: Doc<"transactions">, expected: number | undefined) {
+  // Missing revisions on legacy records represent revision zero. Missing client
+  // preconditions are rejected so an old tab cannot silently remove new files.
+  if (expected !== (transaction.fileRevision ?? 0)) {
+    throw new ConvexError({
+      code: "FILE_EDIT_CONFLICT",
+      message: "Los archivos cambiaron en otra pestaña o sesión. Volvé a abrir el movimiento antes de editar sus adjuntos.",
+    });
+  }
+}
+
 async function queueObjectDeletions(
   ctx: MutationCtx,
   accountId: Id<"accounts">,
@@ -153,6 +164,7 @@ export const beginUpload = mutation({
   args: {
     walletId: v.id("wallets"),
     transactionId: v.optional(v.id("transactions")),
+    expectedFileRevision: v.optional(v.number()),
     retainedFileIds: v.array(v.id("transactionFiles")),
     files: v.array(fileDescriptorValidator),
   },
@@ -182,6 +194,7 @@ export const beginUpload = mutation({
       if (transaction.walletId !== args.walletId) {
         validationError("El movimiento no pertenece a este bolsillo.");
       }
+      requireFileRevision(transaction, args.expectedFileRevision);
       const existingFiles = await readyFilesForTransaction(ctx, transaction._id);
       const existingIds = new Set(existingFiles.map(({ _id }) => _id));
       const retainedIds = new Set(args.retainedFileIds);
@@ -216,6 +229,7 @@ export const beginUpload = mutation({
       accountId: account._id,
       walletId: args.walletId,
       targetTransactionId: args.transactionId,
+      expectedFileRevision: args.transactionId ? args.expectedFileRevision : undefined,
       createdByUserId: user._id,
       status: "pending",
       createdAt: now,
@@ -283,6 +297,7 @@ export const updateTransactionWithFiles = mutation({
   args: {
     transactionId: v.id("transactions"),
     files: v.array(retainedFileValidator),
+    expectedFileRevision: v.number(),
     ...transactionFields,
   },
   handler: async (ctx, args) => {
@@ -305,6 +320,7 @@ export const updateTransactionWithFiles = mutation({
     if (args.files.length > MAX_TRANSACTION_FILES) {
       validationError(`Podés adjuntar hasta ${MAX_TRANSACTION_FILES} archivos por movimiento.`);
     }
+    requireFileRevision(transaction, args.expectedFileRevision);
     const currentFiles = await readyFilesForTransaction(ctx, transaction._id);
     const currentById = new Map(currentFiles.map((file) => [file._id, file]));
     const requestedIds = new Set(args.files.map(({ fileId }) => fileId));
@@ -343,6 +359,7 @@ export const updateTransactionWithFiles = mutation({
       ...validatedTransactionFields(args),
       tagIds,
       fileCount: args.files.length,
+      fileRevision: (transaction.fileRevision ?? 0) + 1,
       updatedAt: Date.now(),
     });
   },
@@ -443,6 +460,7 @@ export const commitUploadBatch = internalMutation({
         ownerId,
         account._id,
       );
+      requireFileRevision(transaction, batch.expectedFileRevision);
       currentFiles = await readyFilesForTransaction(ctx, transaction._id);
     } else if (args.retainedFiles.length) {
       validationError("La lista de archivos no es válida.");
@@ -488,6 +506,7 @@ export const commitUploadBatch = internalMutation({
           ...validatedTransactionFields(args),
           tagIds,
           fileCount: retainedIds.size + pendingFiles.length,
+          fileRevision: 1,
           createdAt: now,
           updatedAt: now,
         });
@@ -496,6 +515,7 @@ export const commitUploadBatch = internalMutation({
         ...validatedTransactionFields(args),
         tagIds,
         fileCount: retainedIds.size + pendingFiles.length,
+        fileRevision: (transaction.fileRevision ?? 0) + 1,
         updatedAt: now,
       });
     }

@@ -7,9 +7,10 @@ import { validateAssignedTagIds } from "./tags";
 import { transactionFields, validatedTransactionFields } from "./transactionDomain";
 import { deleteTransactionFiles, publicTransactionFiles } from "./transactionFiles";
 
-function hideFileCount<T extends { fileCount?: number }>(transaction: T) {
+function hideFileCount<T extends { fileCount?: number; fileRevision?: number }>(transaction: T) {
   const visibleTransaction = { ...transaction };
   delete visibleTransaction.fileCount;
+  delete visibleTransaction.fileRevision;
   return visibleTransaction;
 }
 
