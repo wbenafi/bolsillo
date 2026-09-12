@@ -2,7 +2,7 @@ import { ConvexError } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { FeatureKey } from "../lib/features";
+import { DEFAULT_FEATURE_ACCESS, type FeatureKey } from "../lib/features";
 
 type AuthContext = Pick<QueryCtx | MutationCtx, "auth">;
 type DatabaseContext = Pick<QueryCtx | MutationCtx, "auth" | "db">;
@@ -94,17 +94,29 @@ export async function requireFeature(
   accountId: Doc<"accounts">["_id"],
   featureKey: FeatureKey,
 ) {
-  const override = await ctx.db
-    .query("accountFeatureOverrides")
-    .withIndex("by_account_feature", (q) =>
-      q.eq("accountId", accountId).eq("featureKey", featureKey),
-    )
-    .unique();
-  if (override && !override.enabled) {
+  const { enabled, override } = await featureAccess(ctx, accountId, featureKey);
+  if (!enabled) {
     throw new ConvexError({
       code: "FEATURE_DISABLED",
       message: "Esta función no está habilitada para tu cuenta.",
     });
   }
   return override;
+}
+
+export async function featureAccess(
+  ctx: DatabaseContext,
+  accountId: Doc<"accounts">["_id"],
+  featureKey: FeatureKey,
+) {
+  const override = await ctx.db
+    .query("accountFeatureOverrides")
+    .withIndex("by_account_feature", (q) =>
+      q.eq("accountId", accountId).eq("featureKey", featureKey),
+    )
+    .unique();
+  return {
+    enabled: override?.enabled ?? DEFAULT_FEATURE_ACCESS[featureKey],
+    override,
+  };
 }

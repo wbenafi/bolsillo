@@ -1,0 +1,26 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "http://localhost:3000",
+          "https://bolsillo.example.com"
+        ],
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "headers": [
+          "Content-Type",
+          "If-None-Match"
+        ]
+      },
+      "exposeHeaders": [
+        "ETag",
+        "Content-Length",
+        "Content-Type"
+      ],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
