@@ -10,6 +10,7 @@ import { LoadingState } from "@/components/ui-states";
 import { ShareWalletButton } from "@/components/share-wallet-button";
 import { TransactionDraftsList } from "@/components/transaction-drafts-list";
 import { TransactionList } from "@/components/transaction-list";
+import { WalletTabs } from "@/components/wallet-tabs";
 import { useFeature } from "@/components/viewer-context";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -69,6 +70,7 @@ export default function WalletDetailPage() {
   return (
     <main className="page-shell wallet-detail">
       <Link className="back-link" href="/"><ArrowLeft /> Bolsillos</Link>
+      <WalletTabs walletId={walletId} active="movements" />
       <section className="wallet-hero">
         <div className="wallet-title">
           <div><p className="eyebrow">{wallet.currency}</p><h1>{wallet.name}</h1>{wallet.description && <p>{wallet.description}</p>}</div>
