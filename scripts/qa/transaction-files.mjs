@@ -150,7 +150,7 @@ async function scenario(id, title, description, fn, mobile = false) {
   }
 }
 const wallet = (name) => run('wallets:createWallet', { name: `QA · ${name} · ${runId.slice(11,16)}`, currency: 'CRC' });
-const list = (walletId) => run('transactions:listTransactionsByWallet', { walletId });
+const list = (walletId) => run('transactions:listTransactionsByWallet', { moneyVersion: 2, walletId });
 async function form(page, walletId, description, amount = '18500') {
   await goto(page, `/wallets/${walletId}`);
   await page.getByRole('link', { name: /agregar gasto/i }).click();
@@ -196,7 +196,7 @@ await scenario('01-carga-formatos', 'Carga de los cinco formatos', 'Crear un gas
   await expect(page.locator('.transaction-file-list article')).toHaveCount(5);
   await step(page, r, 'Después de recargar, los cinco archivos siguen guardados');
   r.checks.push('Cinco archivos persistidos en Convex y MinIO.', 'Movimiento creado una sola vez.', 'Saldo actualizado por CRC 18 500.', 'Miniaturas y adjuntos recuperados después de recargar.');
-  assert.equal(run('wallets:getWallet', { walletId: id }).balance, -18500);
+  assert.equal(run('wallets:getWallet', { moneyVersion: 2, walletId: id }).balance, -1850000);
 });
 
 await scenario('02-vistas-descargas', 'Vistas previas y descargas', 'Abrir los cinco formatos guardados y comprobar que la descarga conserva exactamente sus bytes.', async (page, r) => {
@@ -303,7 +303,7 @@ await scenario('08-eliminar-movimiento','Eliminar un movimiento con archivos','C
   await edit(page,id,'Movimiento para eliminar');
   await step(page,r,'Cancelar la confirmación de eliminación'); page.once('dialog',async dialog=>{assert.match(dialog.message(),/archivos/);await dialog.dismiss();}); await page.getByRole('button',{name:'Eliminar movimiento',exact:true}).click(); assert.equal(list(id).length,1);
   await step(page,r,'Confirmar la eliminación del movimiento y sus archivos'); page.once('dialog',async dialog=>{await delay(800);await dialog.accept();}); await page.getByRole('button',{name:'Eliminar movimiento',exact:true}).click(); await expect(page).toHaveURL(new RegExp(`/wallets/${id}$`));
-  assert.equal(list(id).length,0); assert.equal(run('wallets:getWallet',{walletId:id}).balance,0); await waitDeleted(keysFor(files));
+  assert.equal(list(id).length,0); assert.equal(run('wallets:getWallet',{ moneyVersion: 2,walletId:id}).balance,0); await waitDeleted(keysFor(files));
   await step(page,r,'Movimiento eliminado, saldo en cero y archivos borrados físicamente');
   r.checks.push('La confirmación menciona los archivos.', 'Cancelar conserva movimiento y archivos.', 'Confirmar elimina ambos objetos de MinIO.', 'Saldo recalculado a cero.');
 });
@@ -321,7 +321,7 @@ await scenario('09-movil','Flujo de adjuntos en móvil','Crear un gasto, abrir u
 
 await scenario('10-bolsillo-archivado','Archivar, restaurar y eliminar un bolsillo','Conservar adjuntos al archivar y restaurar; al eliminar definitivamente, limpiar también los archivos de todos sus movimientos.',async(page,r)=>{
   const id=wallet('Bolsillo archivado'); await form(page,id,'Archivo dentro del bolsillo'); await attach(page,['detalle.txt']); await save(page,id);
-  const name=run('wallets:getWallet',{walletId:id}).name;
+  const name=run('wallets:getWallet',{ moneyVersion: 2,walletId:id}).name;
   const tx=list(id)[0]; const files=run('transactionFiles:listByTransaction',{transactionId:tx._id});
   await step(page,r,'Archivar el bolsillo conserva el movimiento y su archivo');
   await page.getByRole('button',{name:'Opciones del bolsillo',exact:true}).click();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'Archivar',exact:true}).click();await expect(page).toHaveURL(baseURL+'/');
@@ -388,7 +388,7 @@ const content=Buffer.from('Prueba de seguridad local');
 const batch=run('transactionFiles:beginUpload',{walletId:securityWallet,retainedFileIds:[],files:[{originalName:'seguridad.txt',mimeType:'text/plain',sizeBytes:content.length,order:0}]});
 const {uploads:[upload]}=run('r2:createUploadUrls',{batchId:batch.batchId});
 assert.equal((await fetch(upload.url,{method:'PUT',headers:upload.headers,body:content})).status,200);
-const transactionId=run('r2:finalizeUpload',{batchId:batch.batchId,retainedFiles:[],type:'expense',amountMinor:100,description:'Seguridad local',date:new Date().toISOString().slice(0,10)});
+const transactionId=run('r2:finalizeUpload',{batchId:batch.batchId,retainedFiles:[],type:'expense',moneyVersion: 2, amountMinor:100,description:'Seguridad local',date:new Date().toISOString().slice(0,10)});
 const read=run('r2:createReadUrl',{fileId:upload.fileId});
 const unsigned=new URL(read.url);unsigned.search='';assert.equal((await fetch(unsigned)).status,403);
 const tampered=new URL(read.url);tampered.searchParams.set('X-Amz-Signature','0'.repeat(64));assert.equal((await fetch(tampered)).status,403);

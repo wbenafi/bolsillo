@@ -5,7 +5,7 @@ import { mutation, query, internalMutation, internalQuery, type MutationCtx, typ
 import { requireAccountContext, requireFeature, requireSuperadmin, featureAccess } from "./auth";
 import { ownedDraft, checkedDraftFiles, cancelDraftAnalysis, draftError } from "./transactionDrafts";
 import { normalizeExtraction } from "../lib/transaction-extraction";
-import { parseMoneyInput } from "../lib/money";
+import { currentMoneyAmount, parseMoneyInput } from "../lib/money";
 
 export function monthKey(now = Date.now()) { return new Date(now).toISOString().slice(0, 7); }
 async function usageFor(ctx: QueryCtx | MutationCtx, accountId: Id<"accounts">, month: string) {
@@ -96,7 +96,7 @@ export const finish = internalMutation({ args: { extractionId: v.id("transaction
       const date = result.fields.date.value;
       const type = result.fields.type.value;
       const transactions = await ctx.db.query("transactions").withIndex("by_wallet_date", q => q.eq("walletId", permitted.wallet._id).eq("date", date)).collect();
-      result.duplicate = transactions.some(t => t._id !== permitted.draft.transactionId && t.amountMinor === amount && (!type || t.type === type));
+      result.duplicate = transactions.some(t => t._id !== permitted.draft.transactionId && currentMoneyAmount(t, permitted.wallet.currency) === amount && (!type || t.type === type));
     }
   } else if (!terminal && !cancelled && !errorCode) errorCode = "invalid_response";
   // A cancelled or timed-out request can still return billable usage. Count it

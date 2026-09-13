@@ -136,6 +136,8 @@ export default defineSchema({
     walletId: v.id("wallets"),
     type: transactionTypeValidator,
     amountMinor: v.number(),
+    // Absent: original whole-CRC / USD-cent format. 2: hundredths for both.
+    moneyVersion: v.optional(v.literal(2)),
     description: v.string(),
     date: v.string(),
     notes: v.optional(v.string()),
@@ -166,6 +168,7 @@ export default defineSchema({
   })
     .index("by_account", ["accountId"])
     .index("by_expiration", ["expiresAt"])
+    .index("by_wallet", ["walletId"])
     .index("by_draft", ["draftId"]),
 
   transactionFiles: defineTable({

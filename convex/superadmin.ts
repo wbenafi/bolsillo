@@ -1,3 +1,5 @@
+import { addMoney, currentMoneyAmount } from "../lib/money";
+import { moneyVersionFields, requireMoneyVersion } from "./transactionDomain";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
@@ -136,9 +138,10 @@ export const listAccounts = query({
 });
 
 export const getAccount = query({
-  args: { accountId: v.id("accounts") },
-  handler: async (ctx, { accountId }) => {
+  args: { accountId: v.id("accounts"), ...moneyVersionFields },
+  handler: async (ctx, { accountId, moneyVersion }) => {
     await requireSuperadmin(ctx);
+    requireMoneyVersion(moneyVersion);
     const account = await requireAccount(ctx, accountId);
     const [owner, memberships, wallets, overrides, recentAudit] = await Promise.all([
       ctx.db.get(account.primaryOwnerUserId),
@@ -169,8 +172,9 @@ export const getAccount = query({
         let totalIncome = 0;
         let totalExpense = 0;
         for (const transaction of transactions) {
-          if (transaction.type === "income") totalIncome += transaction.amountMinor;
-          else totalExpense += transaction.amountMinor;
+          const amount = currentMoneyAmount(transaction, wallet.currency);
+          if (transaction.type === "income") totalIncome = addMoney(totalIncome, amount);
+          else totalExpense = addMoney(totalExpense, amount);
         }
         return {
           _id: wallet._id,
@@ -181,7 +185,7 @@ export const getAccount = query({
           transactionCount: transactions.length,
           totalIncome,
           totalExpense,
-          balance: totalIncome - totalExpense,
+          balance: addMoney(totalIncome, -totalExpense),
         };
       }),
     );

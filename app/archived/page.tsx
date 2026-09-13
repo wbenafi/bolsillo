@@ -9,11 +9,11 @@ import { LoadingState } from "@/components/ui-states";
 import { useFeature } from "@/components/viewer-context";
 import { api } from "@/convex/_generated/api";
 import { errorMessage } from "@/lib/errors";
-import { formatMoney } from "@/lib/money";
+import { MONEY_VERSION, formatMoney } from "@/lib/money";
 import type { WalletSummary } from "@/types/domain";
 
 export default function ArchivedPage() {
-  const wallets = useQuery(api.wallets.listArchivedWallets) as WalletSummary[] | undefined;
+  const wallets = useQuery(api.wallets.listArchivedWallets, { moneyVersion: MONEY_VERSION }) as WalletSummary[] | undefined;
   const restoreWallet = useMutation(api.wallets.restoreWallet);
   const deleteWallet = useMutation(api.wallets.deleteWallet);
   const canActivateWallets = useFeature("wallets.create");

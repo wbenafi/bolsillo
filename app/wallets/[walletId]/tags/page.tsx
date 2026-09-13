@@ -1,5 +1,7 @@
 "use client";
 
+import { MONEY_VERSION } from "@/lib/money";
+
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Archive, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
@@ -19,7 +21,7 @@ import type { WalletSummary, WalletTag } from "@/types/domain";
 export default function WalletTagsPage() {
   const { walletId: rawWalletId } = useParams<{ walletId: string }>();
   const walletId = rawWalletId as Id<"wallets">;
-  const wallet = useQuery(api.wallets.getWallet, { walletId }) as WalletSummary | undefined;
+  const wallet = useQuery(api.wallets.getWallet, { walletId, moneyVersion: MONEY_VERSION }) as WalletSummary | undefined;
   const tags = useQuery(api.tags.listTagsByWallet, { walletId }) as WalletTag[] | undefined;
   const deleteTag = useMutation(api.tags.deleteTag);
   const [dialogOpen, setDialogOpen] = useState(false);

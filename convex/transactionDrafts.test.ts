@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
+import { parseMoneyInput } from "../lib/money";
 
 const values = { type: "expense" as const, amount: "18500", description: "Materiales", date: "2026-09-12", notes: "", tagIds: [] };
-const payload = { type: values.type, amountMinor: 18500, description: values.description, date: values.date };
+const payload = { type: values.type, moneyVersion: 2 as const, amountMinor: 1850000, description: values.description, date: values.date };
 async function setup() {
   const t = convexTest(schema, modules);
   const owner = t.withIdentity({ subject: "receipt-owner" });
@@ -38,11 +39,11 @@ describe("receipt drafts", () => {
     const d = await setup(); const batch = await uploaded(d);
     const draft = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
     expect(draft.expiresAt - draft.createdAt).toBe(86400000);
-    expect(await d.owner.query(api.transactions.listTransactionsByWallet, { walletId: d.walletId })).toEqual([]);
+    expect(await d.owner.query(api.transactions.listTransactionsByWallet, { moneyVersion: 2, walletId: d.walletId })).toEqual([]);
     const args = { draftId: d.draftId, version: batch.version, ...payload };
     const first = await d.owner.mutation(api.transactionDrafts.save, args);
     expect(await d.owner.mutation(api.transactionDrafts.save, args)).toBe(first);
-    const transaction = await d.owner.query(api.transactions.getTransaction, { transactionId: first });
+    const transaction = await d.owner.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId: first });
     expect(transaction.fileCount).toBe(1);
     expect(await d.t.run(ctx => ctx.db.get(batch.fileIds[0]))).toMatchObject({ status: "ready", transactionId: first });
   });
@@ -141,14 +142,42 @@ describe("AI results and warnings", () => {
     expect(draft.extraction?.result).toMatchObject({ duplicate: true, currencyMismatch: false });
     await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload })).resolves.toBeTruthy();
   });
+  it.each([
+    { amount: "18500.00", stored: 18500, legacy: true },
+    { amount: "18500.50", stored: 1850050, legacy: false },
+    { amount: "0.01", stored: 1, legacy: false },
+  ])("extracts, detects duplicates, resumes and saves CRC $amount exactly", async ({ amount, stored, legacy }) => {
+    const d = await setup(); const batch = await uploaded(d);
+    const existingId = await d.t.run(ctx => ctx.db.insert("transactions", {
+      ownerId: "receipt-owner", walletId: d.walletId, type: "expense", amountMinor: stored,
+      ...(legacy ? {} : { moneyVersion: 2 as const }), description: "Existing", date: values.date, createdAt: 1, updatedAt: 1,
+    }));
+    const before = await d.t.run(ctx => ctx.db.get(existingId));
+    const extractionId = await d.owner.mutation(api.transactionExtractions.start, { draftId: d.draftId, version: batch.version });
+    await d.t.mutation(internal.transactionExtractions.dispatch, { extractionId });
+    const extracted = result(); extracted.fields.amount.value = amount;
+    await d.t.mutation(internal.transactionExtractions.finish, { extractionId, result: extracted, pages: [1] });
+    const draft = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
+    expect(draft.extraction?.result).toMatchObject({ status: "ok", duplicate: true, fields: { amount: { value: amount, confidence: "high" } } });
+    const version = await d.owner.mutation(api.transactionDrafts.update, {
+      draftId: d.draftId, version: draft.version, values: { ...values, amount }, mode: "documents",
+      fileIds: batch.fileIds, selectedFileIds: batch.fileIds, reviewedFields: ["amount"],
+    });
+    const resumed = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
+    const minor = parseMoneyInput(resumed.values.amount, "CRC")!;
+    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version, ...payload, amountMinor: minor });
+    expect(await d.owner.query(api.transactions.getTransaction, { transactionId: id, moneyVersion: 2 })).toMatchObject({ amountMinor: minor, fileCount: 1 });
+    expect(await d.t.run(ctx => ctx.db.get(id))).toMatchObject({ amountMinor: legacy ? stored * 100 : stored, moneyVersion: 2 });
+    expect(await d.t.run(ctx => ctx.db.get(existingId))).toEqual(before);
+  });
   it("returns a currency warning and permits a manually entered local amount", async () => {
     const d = await setup(); const batch = await uploaded(d);
     const extractionId = await d.owner.mutation(api.transactionExtractions.start, { draftId: d.draftId, version: batch.version });
     await d.t.mutation(internal.transactionExtractions.dispatch, { extractionId });
     await d.t.mutation(internal.transactionExtractions.finish, { extractionId, result: result("USD"), pages: [1] });
     expect((await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!.extraction?.result).toMatchObject({ currencyMismatch: true, currency: "USD" });
-    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload, amountMinor: 6000 });
-    expect((await d.owner.query(api.transactions.getTransaction, { transactionId: id })).amountMinor).toBe(6000);
+    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload, moneyVersion: 2 as const, amountMinor: 6000 });
+    expect((await d.owner.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId: id })).amountMinor).toBe(6000);
   });
   it("records irrelevant-document errors without creating a movement", async () => {
     const d = await setup(); const batch = await uploaded(d);
@@ -157,7 +186,7 @@ describe("AI results and warnings", () => {
     await d.t.mutation(internal.transactionExtractions.finish, { extractionId, result: result("CRC", "unrelated"), pages: [1] });
     expect((await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!.extraction).toMatchObject({ status: "failed", errorCode: "unrelated" });
     expect((await d.owner.query(api.transactionExtractions.adminUsage, { accountId: d.viewer.account._id })).current).toMatchObject({ used: 1, errors: 1 });
-    expect(await d.owner.query(api.transactions.listTransactionsByWallet, { walletId: d.walletId })).toEqual([]);
+    expect(await d.owner.query(api.transactions.listTransactionsByWallet, { moneyVersion: 2, walletId: d.walletId })).toEqual([]);
   });
   it("records late usage after a timeout without delivering late results", async () => {
     const d = await setup(); const batch = await uploaded(d);

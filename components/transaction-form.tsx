@@ -23,7 +23,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { todayInputValue } from "@/lib/date";
 import { errorMessage } from "@/lib/errors";
-import { moneyInputValue, parseMoneyInput } from "@/lib/money";
+import { MONEY_VERSION, moneyInputValue, parseMoneyInput } from "@/lib/money";
 import { transactionSchema, type TransactionFormValues } from "@/lib/validators";
 import type { Currency, TransactionType, WalletTag, WalletTransaction } from "@/types/domain";
 
@@ -114,12 +114,13 @@ export function ManualTransactionForm({ walletId, currency, initialType = "expen
   const onSubmit = handleSubmit(async (values) => {
     const amountMinor = parseMoneyInput(values.amount, currency);
     if (!amountMinor) {
-      toast.error(currency === "CRC" ? "Ingresá un monto entero mayor que cero." : "Ingresá un monto válido mayor que cero.");
+      toast.error("Ingresá un monto mayor que cero con hasta dos decimales, sin puntos ni comas de miles.");
       return;
     }
     const payload = {
       type: values.type,
       amountMinor,
+      moneyVersion: MONEY_VERSION,
       description: values.description.trim(),
       date: values.date,
       notes: values.notes.trim() || undefined,
@@ -208,7 +209,7 @@ export function ManualTransactionForm({ walletId, currency, initialType = "expen
       </fieldset>
       <div className="field amount-field">
         <label htmlFor="amount">Monto</label>
-        <div className="amount-input"><span>{currency === "CRC" ? "₡" : "$"}</span><input id="amount" autoFocus inputMode="decimal" placeholder="0" {...register("amount")} /></div>
+        <div className="amount-input"><span>{currency === "CRC" ? "₡" : "$"}</span><input id="amount" autoFocus inputMode="decimal" placeholder="0,00" {...register("amount")} /></div>
         {errors.amount && <p className="field-error">{errors.amount.message}</p>}
       </div>
       <div className="field">

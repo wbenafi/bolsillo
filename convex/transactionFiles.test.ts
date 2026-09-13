@@ -49,7 +49,7 @@ describe("transaction files", () => {
       batchId: batch.batchId,
       retainedFiles: [],
       verifiedFiles: [{ fileId: batch.fileIds[0], sizeBytes: 24 }],
-      type: "expense", amountMinor: 100, description: "Prueba", date: "2026-09-05",
+      type: "expense", moneyVersion: 2 as const, amountMinor: 100, description: "Prueba", date: "2026-09-05",
     });
     await asUser.mutation(api.wallets.archiveWallet, { walletId });
     await asUser.mutation(api.wallets.deleteWallet, { walletId });
@@ -121,7 +121,7 @@ describe("transaction files", () => {
     const transactionId = await asMember.mutation(api.transactions.createTransaction, {
       walletId,
       type: "expense",
-      amountMinor: 2500,
+      moneyVersion: 2 as const, amountMinor: 2500,
       description: "Compra",
       date: "2026-08-30",
     });
@@ -162,7 +162,7 @@ describe("transaction files", () => {
       return id;
     });
 
-    const visible = await asMember.query(api.transactions.getTransaction, { transactionId });
+    const visible = await asMember.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId });
     expect(visible.fileCount).toBe(1);
     if (!("files" in visible)) throw new Error("Expected visible file metadata");
     expect(visible.files).toHaveLength(1);
@@ -172,7 +172,7 @@ describe("transaction files", () => {
       featureKey: "transactions.files",
       enabled: false,
     });
-    const hidden = await asMember.query(api.transactions.getTransaction, { transactionId });
+    const hidden = await asMember.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId });
     expect(hidden).not.toHaveProperty("fileCount");
     expect(hidden).not.toHaveProperty("fileRevision");
     expect(hidden).not.toHaveProperty("files");
@@ -227,7 +227,7 @@ describe("transaction files", () => {
     });
     const transaction = {
       type: "expense" as const,
-      amountMinor: 15_000,
+      moneyVersion: 2 as const, amountMinor: 15_000,
       description: "Materiales",
       date: "2026-08-30",
     };
@@ -252,7 +252,7 @@ describe("transaction files", () => {
         ...transaction,
       },
     );
-    const stored = await asMember.query(api.transactions.getTransaction, { transactionId });
+    const stored = await asMember.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId });
     expect(stored).toMatchObject({ description: "Materiales", fileCount: 2 });
     if (!("files" in stored)) throw new Error("Expected committed file metadata");
     expect(stored.files.map(({ originalName }) => originalName)).toEqual([
@@ -262,7 +262,7 @@ describe("transaction files", () => {
   });
 });
 
-const editFields = { type: "expense" as const, amountMinor: 100, description: "Original", date: "2026-09-12" };
+const editFields = { type: "expense" as const, moneyVersion: 2 as const, amountMinor: 100, description: "Original", date: "2026-09-12" };
 
 async function editableTransaction() {
   const t = convexTest(schema, modules);
@@ -292,7 +292,7 @@ describe("attachment edit concurrency", () => {
     const batch = await begin(0);
     await commit(batch);
     await asUser.mutation(api.transactions.updateTransaction, { transactionId, ...editFields, description: "Edited description" });
-    const saved = await asUser.query(api.transactions.getTransaction, { transactionId });
+    const saved = await asUser.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId });
     expect(saved).toMatchObject({ description: "Edited description", fileRevision: 1, fileCount: 1 });
     expect(await asUser.query(api.transactionFiles.listByTransaction, { transactionId })).toHaveLength(1);
   });
@@ -305,7 +305,7 @@ describe("attachment edit concurrency", () => {
       transactionId, expectedFileRevision: 0, files: [], ...editFields, description: "Stale save",
     })).rejects.toThrow("otra pestaña");
     await expect(begin(0)).rejects.toThrow("otra pestaña");
-    expect(await asUser.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ description: "Original", fileCount: 1 });
+    expect(await asUser.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId })).toMatchObject({ description: "Original", fileCount: 1 });
     expect(await t.run(ctx => ctx.db.query("r2DeletionJobs").collect())).toHaveLength(0);
     expect(await t.run(ctx => ctx.db.get(batch.fileIds[0]))).not.toBeNull();
   });
@@ -333,7 +333,7 @@ describe("attachment edit concurrency", () => {
     await expect(asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 1, files: [], ...editFields })).rejects.toThrow("otra pestaña");
     expect(await asUser.query(api.transactionFiles.listByTransaction, { transactionId })).toMatchObject([{ displayName: "Renamed elsewhere" }]);
     await asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 2, files: [], ...editFields });
-    expect(await asUser.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ fileCount: 0, fileRevision: 3 });
+    expect(await asUser.query(api.transactions.getTransaction, { moneyVersion: 2, transactionId })).toMatchObject({ fileCount: 0, fileRevision: 3 });
     expect(await t.run(ctx => ctx.db.query("r2DeletionJobs").collect())).toHaveLength(1);
   });
 

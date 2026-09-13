@@ -75,11 +75,6 @@ export function normalizeExtraction(raw: unknown, currency: "CRC" | "USD", tagLa
     parsed.fields.date = { value: null, confidence: "unknown", reason: "Completá la fecha del comprobante.", evidence: null };
   }
   const mismatch = parsed.currency !== null && parsed.currency !== currency;
-  // Receipts print whole-colón totals with .00; preserve the exact value without
-  // allowing or rounding fractional colones in our existing wallet model.
-  if (currency === "CRC" && !mismatch && parsed.fields.amount.value) {
-    parsed.fields.amount.value = parsed.fields.amount.value.replace(/\.0{1,2}$/, "");
-  }
   if (parsed.fields.amount.value && !mismatch && !parseMoneyInput(parsed.fields.amount.value, currency)) {
     parsed.fields.amount = { value: null, confidence: "unknown", reason: "Completá el monto en la moneda del bolsillo.", evidence: null };
   }

@@ -47,7 +47,7 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await page.getByRole("link", { name: /volver a construcción/i }).click();
 
   await page.getByRole("link", { name: /agregar ingreso/i }).click();
-  await page.getByLabel("Monto").fill("5000000");
+  await page.getByLabel("Monto").fill("5000000.25");
   await page.getByLabel("Descripción").fill("Aporte inicial");
   await page.getByRole("button", { name: "Crear tag" }).click();
   await page.getByLabel("Label").fill("Aporte");
@@ -55,10 +55,10 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await page.getByRole("dialog").getByRole("button", { name: "Crear tag" }).click();
   await expect(page.getByRole("button", { name: "Aporte", pressed: true })).toBeVisible();
   await page.getByRole("button", { name: "Guardar movimiento" }).click();
-  await expect(page.locator(".hero-balance strong")).toHaveText(/₡5.*000.*000/);
+  await expect(page.locator(".hero-balance strong")).toHaveText(/₡5.*000.*000,25$/);
 
   await page.getByRole("link", { name: /agregar gasto/i }).click();
-  await page.getByLabel("Monto").fill("185000");
+  await page.getByLabel("Monto").fill("185000,50");
   await page.getByLabel("Descripción").fill("Compra de cemento");
   await page.getByRole("button", { name: "Materiales de obra" }).click();
   await page.getByRole("button", { name: "Crear tag" }).click();
@@ -67,15 +67,15 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await page.getByRole("dialog").getByRole("button", { name: "Crear tag" }).click();
   await expect(page.getByRole("button", { name: "Urgente", pressed: true })).toBeVisible();
   await page.getByRole("button", { name: "Guardar movimiento" }).click();
-  await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*815.*000/);
+  await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*814.*999,75$/);
 
   const filters = page.locator(".transaction-filters");
   await filters.getByRole("button", { name: "Materiales de obra" }).click();
   await expect(page.getByText("Disponible filtrado")).toBeVisible();
-  await expect(page.locator(".hero-balance strong")).toHaveText(/[-−]₡185.*000/);
+  await expect(page.locator(".hero-balance strong")).toHaveText(/[-−]₡185.*000,50$/);
   await expect(page.getByText("1 de 2 registros")).toBeVisible();
   await filters.getByRole("button", { name: "Aporte" }).click();
-  await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*815.*000/);
+  await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*814.*999,75$/);
   await expect(page.getByText("2 de 2 registros")).toBeVisible();
   await expect(page).toHaveURL(/\?tag=.+&tag=.+/);
   await page.reload();
@@ -84,9 +84,10 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await expect(page).not.toHaveURL(/\?tag=/);
 
   await page.getByRole("link", { name: /Compra de cemento/ }).click();
-  await page.getByLabel("Monto").fill("200000");
+  await expect(page.getByLabel("Monto")).toHaveValue("185000.50");
+  await page.getByLabel("Monto").fill("200000.10");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*800.*000/);
+  await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*800.*000,15$/);
   await page.locator(".movements-section").screenshot({
     path: `output/playwright/${testInfo.project.name}-movement-list.png`,
   });
@@ -95,7 +96,7 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await page.getByRole("link", { name: /Aporte inicial/ }).click();
   await expect(page.getByRole("heading", { name: "Editar movimiento" })).toBeVisible();
   await page.getByRole("button", { name: "Eliminar movimiento" }).click();
-  await expect(page.locator(".hero-balance strong")).toHaveText(/[-−]₡200.*000/);
+  await expect(page.locator(".hero-balance strong")).toHaveText(/[-−]₡200.*000,10$/);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(4_500);
   await page.screenshot({

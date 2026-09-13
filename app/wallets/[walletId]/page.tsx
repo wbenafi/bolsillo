@@ -14,7 +14,7 @@ import { useFeature } from "@/components/viewer-context";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { errorMessage } from "@/lib/errors";
-import { calculateWalletTotals, formatMoney } from "@/lib/money";
+import { MONEY_VERSION, calculateWalletTotals, formatMoney } from "@/lib/money";
 import { filterTransactionsByTagIds } from "@/lib/tags";
 import type { WalletSummary, WalletTag, WalletTransaction } from "@/types/domain";
 
@@ -23,8 +23,8 @@ export default function WalletDetailPage() {
   const walletId = rawWalletId as Id<"wallets">;
   const router = useRouter();
   const searchParams = useSearchParams();
-  const wallet = useQuery(api.wallets.getWallet, { walletId }) as WalletSummary | undefined;
-  const transactions = useQuery(api.transactions.listTransactionsByWallet, { walletId }) as WalletTransaction[] | undefined;
+  const wallet = useQuery(api.wallets.getWallet, { walletId, moneyVersion: MONEY_VERSION }) as WalletSummary | undefined;
+  const transactions = useQuery(api.transactions.listTransactionsByWallet, { walletId, moneyVersion: MONEY_VERSION }) as WalletTransaction[] | undefined;
   const tags = useQuery(api.tags.listTagsByWallet, { walletId }) as WalletTag[] | undefined;
   const archiveWallet = useMutation(api.wallets.archiveWallet);
   const canManageTransactions = useFeature("transactions.manage");

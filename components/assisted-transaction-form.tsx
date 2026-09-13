@@ -14,7 +14,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { todayInputValue } from "@/lib/date";
 import { errorMessage } from "@/lib/errors";
-import { moneyInputValue, parseMoneyInput } from "@/lib/money";
+import { MONEY_VERSION, moneyInputValue, parseMoneyInput } from "@/lib/money";
 import { prepareReceiptFile } from "@/lib/prepare-receipt-file";
 import { normalizedTransactionFileType } from "@/lib/transaction-files";
 import { extractionErrors, extractionFieldNames, type ExtractionField, type ExtractionResult } from "@/lib/transaction-extraction";
@@ -228,10 +228,10 @@ export function AssistedTransactionForm({ walletId, currency, initialType = "exp
     const parsed = transactionSchema.safeParse(current.current.values);
     if (!parsed.success) { setErrors(Object.fromEntries(parsed.error.issues.map(i => [i.path[0], i.message]))); setReviewOpen(true); setTimeout(() => formSection.current?.querySelector<HTMLInputElement>("input:invalid")?.focus(), 0); return; }
     const amountMinor = parseMoneyInput(parsed.data.amount, currency);
-    if (!amountMinor) { setErrors({ amount: currency === "CRC" ? "Ingresá un monto entero mayor que cero." : "Ingresá un monto válido mayor que cero." }); setReviewOpen(true); return; }
+    if (!amountMinor) { setErrors({ amount: "Ingresá un monto mayor que cero con hasta dos decimales, sin puntos ni comas de miles." }); setReviewOpen(true); return; }
     setSubmitting(true); setMessage(undefined);
     try {
-      const payload = { type: parsed.data.type, description: parsed.data.description, date: parsed.data.date, notes: parsed.data.notes, tagIds: parsed.data.tagIds, amountMinor };
+      const payload = { type: parsed.data.type, description: parsed.data.description, date: parsed.data.date, notes: parsed.data.notes, tagIds: parsed.data.tagIds, amountMinor, moneyVersion: MONEY_VERSION };
       if (idRef.current || canRead) { await flush(); await save({ draftId: await ensureDraft(), version: version.current, ...payload }); }
       else if (transaction) await updateManual({ transactionId: transaction._id, ...payload });
       else await createManual({ walletId, ...payload });
@@ -286,7 +286,7 @@ export function AssistedTransactionForm({ walletId, currency, initialType = "exp
         {usable && <ReceiptSuggestions sourceNames={(job?.fileIds ?? []).map(id => state.files.find(file => file._id === id)?.originalName ?? "Archivo")} disabled={busy} result={usable} values={state.values} reviewed={state.reviewed} tags={tags ?? []} onApply={applyField} onKeep={key => change(previous => ({ ...previous, reviewed: [...new Set([...previous.reviewed, key])] }))} />}
         <fieldset className="type-picker" disabled={busy}><legend>Tipo de movimiento</legend><button type="button" className={`type-option income${state.values.type === "income" ? " active" : ""}`} aria-pressed={state.values.type === "income"} onClick={() => setField("type", "income")}><ArrowDownLeft /> Ingreso</button><button type="button" className={`type-option expense${state.values.type === "expense" ? " active" : ""}`} aria-pressed={state.values.type === "expense"} onClick={() => setField("type", "expense")}><ArrowUpRight /> Gasto</button></fieldset>
         {hint("type")}
-        <div className="field amount-field"><label htmlFor="amount">Monto <span>{currency}</span></label><div className="amount-input"><span>{currency === "CRC" ? "₡" : "$"}</span><input id="amount" inputMode="decimal" placeholder="0" required disabled={busy} value={state.values.amount} onChange={e => setField("amount", e.target.value)} aria-invalid={!!errors.amount} aria-describedby={errors.amount ? "amount-error" : undefined} /></div>{errors.amount && <p id="amount-error" className="field-error">{errors.amount}</p>}{hint("amount")}</div>
+        <div className="field amount-field"><label htmlFor="amount">Monto <span>{currency}</span></label><div className="amount-input"><span>{currency === "CRC" ? "₡" : "$"}</span><input id="amount" inputMode="decimal" placeholder="0,00" required disabled={busy} value={state.values.amount} onChange={e => setField("amount", e.target.value)} aria-invalid={!!errors.amount} aria-describedby={errors.amount ? "amount-error" : undefined} /></div>{errors.amount && <p id="amount-error" className="field-error">{errors.amount}</p>}{hint("amount")}</div>
         <div className="field"><label htmlFor="description">Descripción</label><input id="description" required maxLength={100} disabled={busy} placeholder="Ej. Compra del supermercado" value={state.values.description} onChange={e => setField("description", e.target.value)} aria-invalid={!!errors.description} />{errors.description && <p className="field-error">{errors.description}</p>}{hint("description")}</div>
         <div className="field"><label htmlFor="date">Fecha</label><input id="date" type="date" required disabled={busy} value={state.values.date} onChange={e => setField("date", e.target.value)} aria-invalid={!!errors.date} />{errors.date && <p className="field-error">{errors.date}</p>}{hint("date")}</div>
         <div className="field"><label htmlFor="notes">Notas <span>Opcional</span></label><textarea id="notes" rows={3} maxLength={500} disabled={busy} placeholder="Un detalle que quieras recordar" value={state.values.notes} onChange={e => setField("notes", e.target.value)} />{hint("notes")}</div>

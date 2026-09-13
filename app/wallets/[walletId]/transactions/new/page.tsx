@@ -1,5 +1,7 @@
 "use client";
 
+import { MONEY_VERSION } from "@/lib/money";
+
 import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -17,7 +19,7 @@ export default function NewTransactionPage() {
   const walletId = rawWalletId as Id<"wallets">;
   const requestedType = useSearchParams().get("type");
   const initialType: TransactionType = requestedType === "income" ? "income" : "expense";
-  const wallet = useQuery(api.wallets.getWallet, { walletId }) as WalletSummary | undefined;
+  const wallet = useQuery(api.wallets.getWallet, { walletId, moneyVersion: MONEY_VERSION }) as WalletSummary | undefined;
   const canManageTransactions = useFeature("transactions.manage");
   if (!canManageTransactions) return <main className="page-shell"><FeatureUnavailable message="La administración de movimientos está deshabilitada para esta cuenta." /></main>;
   if (!wallet) return <main className="page-shell narrow"><LoadingState /></main>;
