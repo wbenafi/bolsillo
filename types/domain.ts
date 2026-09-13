@@ -32,6 +32,7 @@ export type WalletTransaction = {
   tagIds?: Id<"tags">[];
   fileCount?: number;
   fileRevision?: number;
+  revision?: number;
   files?: TransactionFile[];
   createdAt: number;
   updatedAt: number;
@@ -67,6 +68,7 @@ export type Viewer = {
     name?: string;
     email?: string;
     imageUrl?: string;
+    newTransactionMode?: "manual" | "documents";
     platformRole: "member" | "superadmin";
   };
   account: {

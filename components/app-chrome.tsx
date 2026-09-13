@@ -11,6 +11,23 @@ import { api } from "@/convex/_generated/api";
 import { errorMessage } from "@/lib/errors";
 import type { Viewer } from "@/types/domain";
 
+function SessionLoading() {
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setTimedOut(true), 15_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  if (!timedOut) return <LoadingState label="Verificando tu sesión…" />;
+  return (
+    <div className="state-card">
+      <h2>La conexión está tardando</h2>
+      <p>No pudimos conectar con tus bolsillos. Revisá tu conexión e intentá de nuevo.</p>
+      <button className="button primary" onClick={() => window.location.reload()}>Reintentar</button>
+    </div>
+  );
+}
+
 export function AppChrome({ children }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
   const isAuthPage = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
@@ -38,7 +55,7 @@ export function AppChrome({ children }: Readonly<{ children: React.ReactNode }>)
   if (isLoading) {
     return (
       <main className="page-shell">
-        <LoadingState label="Verificando tu sesión…" />
+        <SessionLoading />
       </main>
     );
   }

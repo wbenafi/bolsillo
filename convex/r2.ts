@@ -35,7 +35,7 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
-function r2Configuration() {
+export function r2Configuration(forBrowser = false) {
   const localEndpoint = process.env.R2_LOCAL_ENDPOINT?.trim() || undefined;
   // The override is deliberately restricted to loopback storage for local development.
   if (localEndpoint) {
@@ -48,7 +48,17 @@ function r2Configuration() {
       throw new Error("R2_LOCAL_ENDPOINT debe ser un origen de localhost sin ruta ni credenciales.");
     }
   }
-  const endpoint = localEndpoint ?? `https://${requiredEnvironment("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`;
+  let endpoint = localEndpoint ?? `https://${requiredEnvironment("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`;
+  // Sign LAN uploads/downloads with the hostname the browser can reach. Server
+  // reads and cleanup continue to use the private loopback endpoint.
+  const browserEndpoint = process.env.R2_LOCAL_PUBLIC_ENDPOINT?.trim();
+  if (localEndpoint && forBrowser && browserEndpoint && !process.env.R2_LOCAL_PROXY_URL?.trim()) {
+    const url = new URL(browserEndpoint);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+      throw new Error("R2_LOCAL_PUBLIC_ENDPOINT debe ser un origen sin ruta ni credenciales.");
+    }
+    endpoint = url.origin;
+  }
   const bucket = requiredEnvironment("R2_BUCKET_NAME");
   const accessKeyId = requiredEnvironment("R2_ACCESS_KEY_ID");
   const secretAccessKey = requiredEnvironment("R2_SECRET_ACCESS_KEY");
@@ -68,6 +78,19 @@ function r2Configuration() {
       responseChecksumValidation: "WHEN_REQUIRED",
     }),
   };
+}
+
+export function browserFileUrl(signedUrl: string) {
+  const proxyUrl = process.env.R2_LOCAL_PROXY_URL?.trim();
+  if (!process.env.R2_LOCAL_ENDPOINT?.trim() || !proxyUrl) return signedUrl;
+  const proxy = new URL(proxyUrl);
+  if (!["http:", "https:"].includes(proxy.protocol) || proxy.username || proxy.password || proxy.search || proxy.hash || proxy.pathname !== "/__files") {
+    throw new Error("R2_LOCAL_PROXY_URL debe tener el formato http://servidor:puerto/__files.");
+  }
+  // Sign for the internal S3 host/path. Next strips /__files and restores that
+  // host on forwarding, so MinIO validates the original signature unchanged.
+  const signed = new URL(signedUrl);
+  return `${proxy.origin}${proxy.pathname}${signed.pathname}${signed.search}`;
 }
 
 function fileError(message: string): never {
@@ -94,11 +117,11 @@ export const createUploadUrls = action({
     if (batch.status !== "pending" || batch.expiresAt < Date.now()) {
       throw new ConvexError({ code: "UPLOAD_EXPIRED", message: "La carga venció. Intentá de nuevo." });
     }
-    const { client, bucket, expiresIn } = r2Configuration();
+    const { client, bucket, expiresIn } = r2Configuration(true);
     const uploads = await Promise.all(
       files.map(async (file) => ({
         fileId: file._id,
-        url: await getSignedUrl(
+        url: browserFileUrl(await getSignedUrl(
           client,
           new PutObjectCommand({
             Bucket: bucket,
@@ -107,7 +130,7 @@ export const createUploadUrls = action({
             IfNoneMatch: "*",
           }),
           { expiresIn },
-        ),
+        )),
         headers: {
           "Content-Type": file.mimeType,
           "If-None-Match": "*",
@@ -118,7 +141,7 @@ export const createUploadUrls = action({
   },
 });
 
-async function verifiedR2File(
+export async function verifiedR2File(
   client: S3Client,
   bucket: string,
   file: {
@@ -145,6 +168,7 @@ async function verifiedR2File(
     fileError(`${file.originalName} no coincide con el tipo o tamaño permitido.`);
   }
   return {
+    bytes,
     fileId: file._id,
     sizeBytes: bytes.length,
     etag: response.ETag?.replaceAll('"', ""),
@@ -169,7 +193,7 @@ export const finalizeUpload = action({
     }
     const { client, bucket } = r2Configuration();
     const verifiedFiles = await Promise.all(
-      files.map((file) => verifiedR2File(client, bucket, file)),
+      files.map(async (file) => { const verified = await verifiedR2File(client, bucket, file); return { fileId: verified.fileId, sizeBytes: verified.sizeBytes, etag: verified.etag }; }),
     );
     return await ctx.runMutation(internal.transactionFiles.commitUploadBatch, {
       ...args,
@@ -188,13 +212,13 @@ export const createReadUrl = action({
     mimeType: TransactionFileType;
   }> => {
     const file = await ctx.runQuery(internal.transactionFiles.getFileForRead, { fileId });
-    const { client, bucket, expiresIn } = r2Configuration();
+    const { client, bucket, expiresIn } = r2Configuration(true);
     return {
-      url: await getSignedUrl(
+      url: browserFileUrl(await getSignedUrl(
         client,
         new GetObjectCommand({ Bucket: bucket, Key: file.objectKey }),
         { expiresIn },
-      ),
+      )),
       expiresAt: Date.now() + expiresIn * 1000,
       originalName: file.originalName,
       displayName: file.displayName,

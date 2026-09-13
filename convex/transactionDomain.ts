@@ -1,3 +1,4 @@
+import { validISODate } from "../lib/transaction-extraction";
 import { ConvexError, v } from "convex/values";
 
 import { optionalText, requireText } from "./domain";
@@ -22,7 +23,7 @@ export function validatedTransactionFields(args: {
   if (!Number.isSafeInteger(args.amountMinor) || args.amountMinor <= 0) {
     throw new ConvexError({ code: "VALIDATION_ERROR", message: "El monto debe ser mayor que cero." });
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date) || Number.isNaN(Date.parse(`${args.date}T00:00:00`))) {
+  if (!validISODate(args.date)) {
     throw new ConvexError({ code: "VALIDATION_ERROR", message: "La fecha no es válida." });
   }
   return {

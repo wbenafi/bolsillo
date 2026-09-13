@@ -18,7 +18,7 @@ import {
   type TransactionFileType,
 } from "../lib/transaction-files";
 
-const UPLOAD_BATCH_TTL_MS = 60 * 60 * 1000;
+const UPLOAD_BATCH_TTL_MS = 24 * 60 * 60 * 1000;
 
 const fileDescriptorValidator = v.object({
   originalName: v.string(),
@@ -46,7 +46,7 @@ function validationError(message: string): never {
   throw new ConvexError({ code: "VALIDATION_ERROR", message });
 }
 
-function validatedOriginalName(name: string, mimeType: TransactionFileType) {
+export function validatedOriginalName(name: string, mimeType: TransactionFileType) {
   const normalized = requireText(name, "El nombre del archivo", MAX_TRANSACTION_FILE_NAME_LENGTH);
   if (normalized.includes("/") || normalized.includes("\\") || /[\u0000-\u001f\u007f]/.test(normalized)) {
     validationError("El nombre del archivo no es válido.");
@@ -68,7 +68,7 @@ function validatedOrder(order: number) {
   return order;
 }
 
-function validatedSize(sizeBytes: number) {
+export function validatedSize(sizeBytes: number) {
   if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > MAX_TRANSACTION_FILE_BYTES) {
     validationError("Cada archivo debe pesar 2 MB o menos.");
   }
@@ -114,7 +114,7 @@ function requireFileRevision(transaction: Doc<"transactions">, expected: number 
   }
 }
 
-async function queueObjectDeletions(
+export async function queueObjectDeletions(
   ctx: MutationCtx,
   accountId: Id<"accounts">,
   objectKeys: string[],
@@ -138,7 +138,7 @@ async function queueObjectDeletions(
   await ctx.scheduler.runAfter(0, internal.r2.processDeletionJobs, { jobIds });
 }
 
-function publicFile(file: Doc<"transactionFiles">) {
+export function publicFile(file: Doc<"transactionFiles">) {
   return {
     _id: file._id,
     transactionId: file.transactionId,
@@ -360,6 +360,7 @@ export const updateTransactionWithFiles = mutation({
       tagIds,
       fileCount: args.files.length,
       fileRevision: (transaction.fileRevision ?? 0) + 1,
+      revision: (transaction.revision ?? 0) + 1,
       updatedAt: Date.now(),
     });
   },
@@ -431,6 +432,7 @@ export const commitUploadBatch = internalMutation({
     if (!batch || batch.accountId !== account._id) {
       throw new ConvexError({ code: "UPLOAD_NOT_FOUND", message: "La carga ya no está disponible." });
     }
+    if (batch.draftId) validationError("Guardá estos archivos desde su borrador.");
     if (batch.status === "committed" && batch.committedTransactionId) {
       return batch.committedTransactionId;
     }
@@ -516,6 +518,7 @@ export const commitUploadBatch = internalMutation({
         tagIds,
         fileCount: retainedIds.size + pendingFiles.length,
         fileRevision: (transaction.fileRevision ?? 0) + 1,
+        revision: (transaction.revision ?? 0) + 1,
         updatedAt: now,
       });
     }

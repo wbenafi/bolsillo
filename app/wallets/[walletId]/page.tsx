@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { LoadingState } from "@/components/ui-states";
 import { ShareWalletButton } from "@/components/share-wallet-button";
+import { TransactionDraftsList } from "@/components/transaction-drafts-list";
 import { TransactionList } from "@/components/transaction-list";
 import { useFeature } from "@/components/viewer-context";
 import { api } from "@/convex/_generated/api";
@@ -84,6 +85,7 @@ export default function WalletDetailPage() {
       </section>
       {!wallet.archivedAt && canManageTransactions && <div className="movement-actions"><Link className="button income-button" href={`/wallets/${walletId}/transactions/new?type=income`}><ArrowDownLeft /> Agregar ingreso</Link><Link className="button expense-button" href={`/wallets/${walletId}/transactions/new?type=expense`}><ArrowUpRight /> Agregar gasto</Link></div>}
       {wallet.archivedAt && <div className="archived-notice"><Archive /> Este bolsillo está archivado. Restauralo para modificarlo.</div>}
+      {!wallet.archivedAt && canManageTransactions && <TransactionDraftsList walletId={walletId} />}
       <section className="movements-section">
         <div className="section-title"><div><p className="eyebrow">{hasActiveFilters ? `${filteredTransactions.length} de ${transactions.length} registros` : `${transactions.length} ${transactions.length === 1 ? "registro" : "registros"}`}</p><h2>Movimientos</h2></div>{!wallet.archivedAt && canManageTransactions && <Link className="icon-link desktop-add" href={`/wallets/${walletId}/transactions/new`} aria-label="Agregar movimiento"><Plus /></Link>}</div>
         {tags.length > 0 && (

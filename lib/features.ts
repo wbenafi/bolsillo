@@ -34,6 +34,13 @@ export const FEATURE_DEFINITIONS = [
     supportsLimit: false,
     defaultEnabled: false,
   },
+  {
+    key: "transactions.aiExtract",
+    name: "Leer comprobantes con IA",
+    description: "Completa movimientos desde fotos y archivos. Requiere Archivos en movimientos. Límite mensual de análisis (30 por defecto).",
+    supportsLimit: true,
+    defaultEnabled: false,
+  },
 ] as const;
 
 export type FeatureKey = (typeof FEATURE_DEFINITIONS)[number]["key"];
@@ -62,7 +69,7 @@ export function resolveFeatureAccess(
     return {
       key,
       enabled: override?.enabled ?? DEFAULT_FEATURE_ACCESS[key],
-      limit: override?.limit,
+      limit: override?.limit ?? (key === "transactions.aiExtract" ? 30 : undefined),
       overridden: Boolean(override),
     };
   });

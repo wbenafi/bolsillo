@@ -221,6 +221,39 @@ Ese comando reemplaza la política CORS: conservá los otros orígenes si compar
 el bucket. Escribir variables solamente en `.env.local` no las configura en Convex.
 `R2_LOCAL_ENDPOINT` es exclusivo del emulador local y no debe configurarse en cloud.
 
+### Acceso desde otro equipo de la red local
+
+Para abrir `http://wbox.local:3000`, iniciá Next con
+`npm run dev -- --hostname 0.0.0.0 --port 3000`. El hostname está incluido en
+`allowedDevOrigins`. En `.env.local`, las URLs `NEXT_PUBLIC_CONVEX_URL` y
+`NEXT_PUBLIC_CONVEX_SITE_URL` deben usar `wbox.local` y los puertos del backend,
+porque el navegador del otro equipo no puede acceder al localhost del servidor.
+Convex también debe escuchar en la interfaz de red. Al ejecutar `convex dev`,
+revisá esas URLs: el CLI puede volver a escribirlas con `127.0.0.1`.
+
+Si el entorno usa `CONVEX_SELF_HOSTED_URL`, Next en desarrollo redirige
+`/__convex/*` a ese backend y el navegador usa automáticamente el mismo origen
+de la app para conectarse, incluidos los WebSockets. En este caso Convex puede
+permanecer en loopback y no hace falta abrir su puerto en el firewall. Convex
+valida los tokens y permisos de cada solicitud. Esta redirección está desactivada
+fuera de desarrollo y los entornos cloud conservan su URL habitual.
+
+Si usás MinIO, habilitá su API en la interfaz de red y agregá
+`http://wbox.local:3000` a sus orígenes CORS. Conservá `R2_LOCAL_ENDPOINT` con
+loopback para las operaciones del servidor y configurá en Convex
+`R2_LOCAL_PUBLIC_ENDPOINT=http://wbox.local:<puerto-minio>` para las URLs firmadas
+que usa el navegador. El bucket sigue siendo privado. Esta configuración de red
+es adicional al entorno `dev:local`, que por defecto escucha solo en loopback.
+
+Para usar únicamente el puerto de la app también para los adjuntos, configurá
+`LOCAL_STORAGE_PROXY_TARGET=http://127.0.0.1:<puerto-minio>` en `.env.local` y
+`R2_LOCAL_PROXY_URL=http://wbox.local:3000/__files` en Convex. En este modo MinIO
+puede permanecer en loopback. El proxy de desarrollo conserva la ruta y firma S3
+originales al reenviar: las cargas y descargas siguen requiriendo un enlace
+firmado vigente. `R2_LOCAL_PROXY_URL` tiene prioridad sobre
+`R2_LOCAL_PUBLIC_ENDPOINT` y solo se aplica al emulador local. Las cargas tienen
+un límite de espera de 45 segundos y muestran cómo reintentar si la conexión falla.
+
 ## Verificación
 
 ```bash
@@ -281,3 +314,44 @@ La firma se verifica antes de procesar cada evento. Las eliminaciones de Clerk c
 - `tags.manage`: creación, edición y eliminación de tags.
 - `wallets.share`: generación y uso del resumen compartible.
 - `transactions.files`: carga, vista previa, descarga y eliminación de archivos privados en movimientos; deshabilitada por defecto.
+
+## Movimientos desde comprobantes con IA
+
+El formulario tiene dos pestañas: **Manual** y **Comprobantes**. La segunda permite sumar fotos desde la cámara o archivos existentes, verlos y elegir cuáles leer juntos. Se usa un solo análisis para un solo movimiento; siempre se revisan los datos y se guarda manualmente. Los usuarios nuevos empiezan en Manual y se recuerda su última pestaña. Al editar se abre Manual y la lectura requiere un clic explícito.
+
+### Activación y proveedor
+
+1. Desplegá las funciones y el esquema Convex junto con el frontend. `convex.json` incluye las dependencias nativas necesarias para preparar imágenes y PDF en las acciones Node 22.
+2. Configurá `QWEN_API_KEY` y `QWEN_BASE_URL` en **el entorno de Convex** (Dashboard → Settings → Environment Variables). Una variable en el frontend o solamente en `.env.local` no configura las acciones de Convex. Nunca uses variables `NEXT_PUBLIC` para la clave.
+3. En Superadmin → Cuenta → Acceso a funciones, habilitá **Archivos en movimientos** y **Leer comprobantes con IA**. La IA está apagada por defecto y usa el mismo alcance por cuenta que el flag de archivos.
+4. El límite inicial es **30 análisis por mes y cuenta**, configurable en ese panel. El cupo se renueva el día 1 a las 00:00 UTC. Desactivar IA no impide guardar manualmente un borrador ya obtenido, siempre que continúen habilitados los permisos de movimientos y archivos.
+
+Se utiliza el SDK oficial `openai`, Chat Completions y el modelo exacto **`qwen3.8-flash`**, con la URL compatible de tu proveedor. El ejemplo de `.env.example` usa DashScope internacional; la clave debe pertenecer a ese endpoint. La [documentación de Qwen3.8-Flash](https://docs.qwencloud.com/developer-guides/getting-started/latest-model) describe soporte visual y `reasoning_effort: low`. Usamos [JSON Object](https://docs.qwencloud.com/developer-guides/text-generation/structured-output) y validación Zod en el servidor. No hay herramientas del agente, navegación ni escritura automática del movimiento.
+
+Las lecturas se ejecutan en una acción programada y persistente. El objetivo de experiencia es 5–10 segundos, sin garantizar esa latencia: la solicitud tiene un timeout de 30 segundos y un control de cierre a los 60 segundos. No hay reintentos automáticos del SDK. Un clic repetido recupera la extracción activa o el resultado ya obtenido para esos archivos, sin otra llamada. «Volver a leer» solicita explícitamente un nuevo análisis y consume otro cupo. Cambiar los archivos invalida el resultado previo; cambiar a Manual cancela la espera y descarta resultados tardíos.
+
+### Archivos, borradores y revisión
+
+- Hasta 5 archivos de 2 MB almacenados cada uno: JPG, PNG, WebP, PDF y TXT. Las fotos de hasta 20 MB se pueden reducir en el navegador, conservando una resolución legible; las imágenes decodificadas se limitan a 40 megapíxeles. HEIC no forma parte de esta versión: se explica cómo elegir JPG.
+- La lectura con IA conserva los bytes y la resolución de las imágenes ya subidas; solo se recodifican cuando hay que corregir una orientación EXIF. No se aplica una segunda compresión JPEG a capturas PNG ni a fotos que ya cumplen el límite.
+- Los PDF se renderizan en el servidor, con un máximo de 10 páginas en total por análisis. No se omiten páginas en silencio. Los PDF protegidos, dañados o demasiado extensos devuelven un error. TXT se limita a 40.000 caracteres para la lectura. Los originales PDF/TXT permanecen intactos en R2.
+- Los objetos R2 son privados, con URLs firmadas de corta duración. El servidor valida tamaño, tipo, contenido, cuenta, bolsillo y relación con el borrador antes de leerlos. Los archivos analizados se incorporan al movimiento en la misma transacción de base de datos que lo guarda.
+- Los borradores conservan archivos, datos manuales, resultado y decisiones de revisión durante **24 horas desde su creación**. Se retoman desde el bolsillo o la URL `?draft=…`. Los borradores no cambian el saldo. Guardar es idempotente y una edición concurrente se rechaza antes de sobrescribir datos.
+- Confianza por campo: `high`, `medium`, `low`, `unknown`, con motivo y evidencia de archivo/página. Los valores altos/medios completan campos vacíos; los medios muestran “Revisá”. Los valores bajos requieren “Usar este dato”, y los desconocidos quedan vacíos. Cualquier valor existente requiere una decisión explícita. La confianza es una estimación del modelo, no un porcentaje de exactitud.
+- Se sugieren únicamente tipo, monto, descripción, fecha, notas y tags existentes. Las monedas distintas y los posibles duplicados generan advertencias. No hay conversión automática ni creación automática de tags. La coincidencia de duplicados usa bolsillo, fecha, monto y tipo cuando está disponible.
+- Los totales CRC impresos con decimales cero, como `45181.00`, se normalizan a `45181` sin redondear cantidades fraccionarias. La respuesta de IA se valida por campo: un campo mal formado queda pendiente de revisión y no elimina los otros datos válidos. Una respuesta sin datos utilizables sigue siendo un error.
+
+Al descartar o vencer un borrador se eliminan sus cargas pendientes mediante la cola de limpieza de R2. Los archivos ya guardados en un movimiento se conservan. El resultado con contenido del documento se elimina al vencer el borrador; los registros operativos se conservan durante 30 días y los totales mensuales permanecen disponibles. El cron horario reconcilia eliminaciones pendientes. Borrar el movimiento o bolsillo también limpia sus borradores asociados.
+
+### Consumo y verificación
+
+La [guía de producción de lectura de comprobantes](docs/receipt-ai-production.md)
+describe las variables, el despliegue y la activación por cuenta.
+
+Superadmin muestra solicitudes enviadas, reservas, errores, tokens de entrada/salida y duraciones. Un envío al proveedor consume cupo aunque falle, se cancele o el documento resulte irrelevante; los errores previos al envío liberan la reserva. Si una acción se interrumpe después de reservar el envío, el cupo se conserva de forma prudente. Una respuesta sin métricas no permite conocer su costo real.
+
+Para estimar costos, configurá también `QWEN_INPUT_USD_PER_MILLION` y `QWEN_OUTPUT_USD_PER_MILLION` según las tarifas de tu endpoint. La estimación es tokens × tarifa configurada; no contempla descuentos de caché ni sustituye la factura del proveedor. Sin tarifas aparece “—”. No se guardan claves, URLs firmadas, prompts ni mensajes crudos del proveedor en los registros administrativos.
+
+Ejecutá `npm run lint`, `npm run typecheck`, `npm test` y `npm run build`. Los tests cubren aislamiento entre cuentas, archivos verificados, concurrencia, expiración, límites/idempotencia, cancelación, monedas/duplicados, validación de confianza, renderizado PDF y el formato real de la solicitud del SDK con un transporte simulado. La precisión y latencia de Qwen requieren además una prueba con la clave y el endpoint definitivos, usando comprobantes de prueba representativos.
+
+El flujo y las decisiones de producto están en [el plan HTML](docs/plan-movimientos-ia.html).

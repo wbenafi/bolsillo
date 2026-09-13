@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { AIAccountUsage } from "@/components/ai-account-usage";
 import { LoadingState } from "@/components/ui-states";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -69,7 +70,7 @@ function FeatureRow({ accountId, feature, definition }: FeatureRowProps) {
     <article className="feature-row">
       <div><strong>{definition.name}</strong><p>{definition.description}</p>{feature.overridden && <small>Configuración personalizada</small>}</div>
       <div className="feature-controls">
-        {definition.supportsLimit && <label>Límite<input aria-label={`Límite de ${definition.name}`} inputMode="numeric" value={limit} onChange={(event) => setLimit(event.target.value.replace(/\D/g, ""))} placeholder="Sin límite" /></label>}
+        {definition.supportsLimit && <label>{feature.key === "transactions.aiExtract" ? "Análisis / mes" : "Límite"}<input aria-label={`Límite de ${definition.name}`} inputMode="numeric" value={limit} onChange={(event) => setLimit(event.target.value.replace(/\D/g, ""))} placeholder={feature.key === "transactions.aiExtract" ? "30" : "Sin límite"} /></label>}
         <button type="button" className={`feature-toggle ${feature.enabled ? "enabled" : "disabled"}`} onClick={() => save(!feature.enabled)} disabled={saving} aria-label={`${feature.enabled ? "Deshabilitar" : "Habilitar"} ${definition.name}`}>
           {feature.enabled ? <><Check /> Habilitada</> : <><Ban /> Deshabilitada</>}
         </button>
@@ -151,6 +152,8 @@ export default function AccountDetailPage() {
           })}
         </div>
       </section>
+
+      <AIAccountUsage accountId={accountId} />
 
       <section className="admin-section">
         <div className="admin-section-heading"><div><p className="eyebrow">Patrimonio registrado</p><h3>Bolsillos</h3></div><p>{detail.wallets.length} en total</p></div>

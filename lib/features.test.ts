@@ -9,9 +9,10 @@ describe("feature access", () => {
       enabled: false,
       overridden: false,
     });
+    expect(features.find(({ key }) => key === "transactions.aiExtract")).toMatchObject({ enabled: false, limit: 30 });
     expect(
       features
-        .filter(({ key }) => key !== "transactions.files")
+        .filter(({ key }) => key !== "transactions.files" && key !== "transactions.aiExtract")
         .every((feature) => feature.enabled && !feature.overridden),
     ).toBe(true);
   });
@@ -32,7 +33,7 @@ describe("feature access", () => {
 
   it("ignores unknown stored keys when resolving the current catalog", () => {
     const features = resolveFeatureAccess([{ featureKey: "retired.feature", enabled: false }]);
-    expect(features).toHaveLength(5);
+    expect(features).toHaveLength(6);
     expect(features.find(({ key }) => key === "transactions.files")?.enabled).toBe(false);
   });
 });

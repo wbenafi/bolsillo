@@ -38,6 +38,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <AppProviders
           clerkPublishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
           convexUrl={process.env.NEXT_PUBLIC_CONVEX_URL}
+          useLocalConvexProxy={process.env.NODE_ENV === "development" && Boolean(process.env.CONVEX_SELF_HOSTED_URL)}
         >
           <AppChrome>{children}</AppChrome>
         </AppProviders>

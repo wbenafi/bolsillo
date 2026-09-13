@@ -9,4 +9,6 @@ crons.hourly(
   internal.transactionFiles.reconcileStorageCleanup,
 );
 
+crons.hourly("Limpiar borradores y registros de IA", internal.transactionDrafts.cleanup);
+
 export default crons;

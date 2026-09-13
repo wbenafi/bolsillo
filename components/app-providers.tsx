@@ -13,6 +13,7 @@ type AppProvidersProps = Readonly<{
   children: React.ReactNode;
   clerkPublishableKey?: string;
   convexUrl?: string;
+  useLocalConvexProxy?: boolean;
 }>;
 
 function ConfigurationNotice() {
@@ -31,10 +32,15 @@ function ConfigurationNotice() {
   );
 }
 
-export function AppProviders({ children, clerkPublishableKey, convexUrl }: AppProvidersProps) {
+export function AppProviders({ children, clerkPublishableKey, convexUrl, useLocalConvexProxy = false }: AppProvidersProps) {
   const convex = useMemo(
-    () => (convexUrl ? new ConvexReactClient(convexUrl) : null),
-    [convexUrl],
+    () => {
+      const url = useLocalConvexProxy && typeof window !== "undefined"
+        ? `${window.location.origin}/__convex`
+        : convexUrl;
+      return url ? new ConvexReactClient(url) : null;
+    },
+    [convexUrl, useLocalConvexProxy],
   );
 
   if (!clerkPublishableKey || !convex) return <ConfigurationNotice />;

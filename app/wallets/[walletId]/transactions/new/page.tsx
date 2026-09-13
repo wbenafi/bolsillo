@@ -21,5 +21,5 @@ export default function NewTransactionPage() {
   const canManageTransactions = useFeature("transactions.manage");
   if (!canManageTransactions) return <main className="page-shell"><FeatureUnavailable message="La administración de movimientos está deshabilitada para esta cuenta." /></main>;
   if (!wallet) return <main className="page-shell narrow"><LoadingState /></main>;
-  return <main className="page-shell narrow"><Link className="back-link" href={`/wallets/${walletId}`}><ArrowLeft /> Volver a {wallet.name}</Link><section className="page-heading"><p className="eyebrow">{wallet.name}</p><h1>Nuevo movimiento</h1><p>Registralo ahora; el saldo se actualiza al instante.</p></section><TransactionForm walletId={walletId} currency={wallet.currency} initialType={initialType} /></main>;
+  return <main className="page-shell narrow"><Link className="back-link" href={`/wallets/${walletId}`}><ArrowLeft /> Volver a {wallet.name}</Link><section className="page-heading"><p className="eyebrow">{wallet.name}</p><h1>Nuevo movimiento</h1><p>El saldo cambia cuando guardás el movimiento.</p></section><TransactionForm walletId={walletId} currency={wallet.currency} initialType={initialType} /></main>;
 }
