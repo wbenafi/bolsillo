@@ -196,7 +196,7 @@ await scenario('01-carga-formatos', 'Carga de los cinco formatos', 'Crear un gas
   await expect(page.locator('.transaction-file-list article')).toHaveCount(5);
   await step(page, r, 'Después de recargar, los cinco archivos siguen guardados');
   r.checks.push('Cinco archivos persistidos en Convex y MinIO.', 'Movimiento creado una sola vez.', 'Saldo actualizado por CRC 18 500.', 'Miniaturas y adjuntos recuperados después de recargar.');
-  assert.equal(run('wallets:getWallet', { walletId: id }).balance, -18500);
+  assert.equal(run('wallets:getWallet', { walletId: id }).balance, -1850000);
 });
 
 await scenario('02-vistas-descargas', 'Vistas previas y descargas', 'Abrir los cinco formatos guardados y comprobar que la descarga conserva exactamente sus bytes.', async (page, r) => {

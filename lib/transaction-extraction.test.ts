@@ -5,14 +5,15 @@ function receipt() {
   return { status: "ok", currency: "CRC", fields: { type: field("expense"), amount: field("18500"), description: field("Materiales"), date: field("2026-09-12"), notes: field(null), tags: field(["Casa", "Inventado"]) } };
 }
 describe("receipt extraction validation", () => {
-  it("preserves a printed whole-colón total with decimal zeros, without rounding", () => {
+  it("preserves printed CRC totals including fractional colones without rounding", () => {
     const input = receipt(); input.fields.amount.value = "45181.00";
     const result = normalizeExtraction(input, "CRC", [], [1]);
-    expect(result.fields.amount.value).toBe("45181");
+    expect(result.fields.amount.value).toBe("45181.00");
     expect(result.fields.amount.confidence).toBe("high");
-    expect(normalizeExtraction(result, "CRC", [], [1]).fields.amount.value).toBe("45181");
+    expect(normalizeExtraction(result, "CRC", [], [1]).fields.amount.value).toBe("45181.00");
     input.fields.amount.value = "45181.50";
-    expect(normalizeExtraction(input, "CRC", [], [1]).fields.amount.value).toBeNull();
+    expect(normalizeExtraction(input, "CRC", [], [1]).fields.amount.value).toBe("45181.50");
+    expect(normalizeExtraction(input, "CRC", [], [1]).status).toBe("ok");
   });
   it("keeps usable receipt fields when another provider field is malformed", () => {
     const input = receipt(); input.fields.date.value = "December 7";
@@ -55,7 +56,7 @@ describe("receipt extraction validation", () => {
     expect(result.currencyMismatch).toBe(true); expect(result.fields.amount.value).toBe("12.50");
   });
   it("rejects invalid money and unknown confidence values", () => {
-    const input = receipt(); input.fields.amount.value = "12.50";
+    const input = receipt(); input.fields.amount.value = "0";
     expect(normalizeExtraction(input, "CRC", [], [1]).fields.amount.value).toBeNull();
     input.fields.amount.confidence = "100%";
     expect(() => normalizeExtraction(input, "CRC", [], [1])).toThrow();

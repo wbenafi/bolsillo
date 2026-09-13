@@ -1,3 +1,4 @@
+import { addMoney } from "../lib/money";
 import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
@@ -22,15 +23,16 @@ async function walletSummary(
   let latestMovementAt: string | undefined;
 
   for (const transaction of transactions) {
-    if (transaction.type === "income") totalIncome += transaction.amountMinor;
-    else totalExpense += transaction.amountMinor;
+    const amount = transaction.amountMinor;
+    if (transaction.type === "income") totalIncome = addMoney(totalIncome, amount);
+    else totalExpense = addMoney(totalExpense, amount);
     if (!latestMovementAt || transaction.date > latestMovementAt) latestMovementAt = transaction.date;
   }
 
   return {
     totalIncome,
     totalExpense,
-    balance: totalIncome - totalExpense,
+    balance: addMoney(totalIncome, -totalExpense),
     latestMovementAt,
     transactionCount: transactions.length,
   };
@@ -123,7 +125,17 @@ export const updateWallet = mutation({
   },
   handler: async (ctx, args) => {
     const { ownerId, account } = await requireAccountContext(ctx);
-    await requireOwnedWallet(ctx, args.walletId, ownerId, account._id);
+    const wallet = await requireOwnedWallet(ctx, args.walletId, ownerId, account._id);
+    if (args.currency !== wallet.currency) {
+      const [transaction, draft, upload] = await Promise.all([
+        ctx.db.query("transactions").withIndex("by_wallet", q => q.eq("walletId", wallet._id)).first(),
+        ctx.db.query("transactionDrafts").withIndex("by_wallet", q => q.eq("walletId", wallet._id)).filter(q => q.and(q.eq(q.field("status"), "active"), q.gt(q.field("expiresAt"), Date.now()))).first(),
+        ctx.db.query("fileUploadBatches").withIndex("by_wallet", q => q.eq("walletId", wallet._id)).filter(q => q.and(q.eq(q.field("status"), "pending"), q.gt(q.field("expiresAt"), Date.now()))).first(),
+      ]);
+      if (transaction || draft || upload) {
+        throw new ConvexError({ code: "WALLET_CURRENCY_LOCKED", message: "No podés cambiar la moneda de un bolsillo con movimientos, borradores o cargas de archivos. Creá otro bolsillo para usar otra moneda." });
+      }
+    }
     await ctx.db.patch(args.walletId, {
       name: requireText(args.name, "El nombre", 60),
       description: optionalText(args.description, 240),

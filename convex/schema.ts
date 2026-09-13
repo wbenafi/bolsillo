@@ -45,6 +45,14 @@ export const fileUploadBatchStatusValidator = v.union(
 );
 
 export default defineSchema({
+  dataMigrations: defineTable({
+    name: v.string(),
+    completedAt: v.number(),
+    transactionCount: v.number(),
+    crcCount: v.number(),
+    usdCount: v.number(),
+  }).index("by_name", ["name"]),
+
   users: defineTable({
     externalId: v.string(),
     tokenIdentifier: v.optional(v.string()),
@@ -166,6 +174,7 @@ export default defineSchema({
   })
     .index("by_account", ["accountId"])
     .index("by_expiration", ["expiresAt"])
+    .index("by_wallet", ["walletId"])
     .index("by_draft", ["draftId"]),
 
   transactionFiles: defineTable({

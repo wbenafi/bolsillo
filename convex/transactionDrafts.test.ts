@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
+import { parseMoneyInput } from "../lib/money";
 
 const values = { type: "expense" as const, amount: "18500", description: "Materiales", date: "2026-09-12", notes: "", tagIds: [] };
-const payload = { type: values.type, amountMinor: 18500, description: values.description, date: values.date };
+const payload = { type: values.type, amountMinor: 1850000, description: values.description, date: values.date };
 async function setup() {
   const t = convexTest(schema, modules);
   const owner = t.withIdentity({ subject: "receipt-owner" });
@@ -140,6 +141,34 @@ describe("AI results and warnings", () => {
     const draft = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
     expect(draft.extraction?.result).toMatchObject({ duplicate: true, currencyMismatch: false });
     await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload })).resolves.toBeTruthy();
+  });
+  it.each([
+    { amount: "18500.00", stored: 1850000 },
+    { amount: "18500.50", stored: 1850050 },
+    { amount: "0.01", stored: 1 },
+  ])("extracts, detects duplicates, resumes and saves CRC $amount exactly", async ({ amount, stored }) => {
+    const d = await setup(); const batch = await uploaded(d);
+    const existingId = await d.t.run(ctx => ctx.db.insert("transactions", {
+      ownerId: "receipt-owner", walletId: d.walletId, type: "expense", amountMinor: stored,
+      description: "Existing", date: values.date, createdAt: 1, updatedAt: 1,
+    }));
+    const before = await d.t.run(ctx => ctx.db.get(existingId));
+    const extractionId = await d.owner.mutation(api.transactionExtractions.start, { draftId: d.draftId, version: batch.version });
+    await d.t.mutation(internal.transactionExtractions.dispatch, { extractionId });
+    const extracted = result(); extracted.fields.amount.value = amount;
+    await d.t.mutation(internal.transactionExtractions.finish, { extractionId, result: extracted, pages: [1] });
+    const draft = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
+    expect(draft.extraction?.result).toMatchObject({ status: "ok", duplicate: true, fields: { amount: { value: amount, confidence: "high" } } });
+    const version = await d.owner.mutation(api.transactionDrafts.update, {
+      draftId: d.draftId, version: draft.version, values: { ...values, amount }, mode: "documents",
+      fileIds: batch.fileIds, selectedFileIds: batch.fileIds, reviewedFields: ["amount"],
+    });
+    const resumed = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
+    const minor = parseMoneyInput(resumed.values.amount, "CRC")!;
+    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version, ...payload, amountMinor: minor });
+    expect(await d.owner.query(api.transactions.getTransaction, { transactionId: id })).toMatchObject({ amountMinor: minor, fileCount: 1 });
+    expect(await d.t.run(ctx => ctx.db.get(id))).toMatchObject({ amountMinor: stored });
+    expect(await d.t.run(ctx => ctx.db.get(existingId))).toEqual(before);
   });
   it("returns a currency warning and permits a manually entered local amount", async () => {
     const d = await setup(); const batch = await uploaded(d);

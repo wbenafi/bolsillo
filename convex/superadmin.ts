@@ -1,3 +1,4 @@
+import { addMoney } from "../lib/money";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
@@ -169,8 +170,9 @@ export const getAccount = query({
         let totalIncome = 0;
         let totalExpense = 0;
         for (const transaction of transactions) {
-          if (transaction.type === "income") totalIncome += transaction.amountMinor;
-          else totalExpense += transaction.amountMinor;
+          const amount = transaction.amountMinor;
+          if (transaction.type === "income") totalIncome = addMoney(totalIncome, amount);
+          else totalExpense = addMoney(totalExpense, amount);
         }
         return {
           _id: wallet._id,
@@ -181,7 +183,7 @@ export const getAccount = query({
           transactionCount: transactions.length,
           totalIncome,
           totalExpense,
-          balance: totalIncome - totalExpense,
+          balance: addMoney(totalIncome, -totalExpense),
         };
       }),
     );
