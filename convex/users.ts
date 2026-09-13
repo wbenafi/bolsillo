@@ -167,6 +167,7 @@ export const current = query({
         email: user.email,
         imageUrl: user.imageUrl,
         platformRole: user.platformRole,
+        newTransactionMode: user.newTransactionMode,
       },
       account: {
         _id: account._id,
@@ -221,6 +222,7 @@ export type Viewer = {
     email?: string;
     imageUrl?: string;
     platformRole: "member" | "superadmin";
+    newTransactionMode?: "manual" | "documents";
   };
   account: {
     _id: Id<"accounts">;

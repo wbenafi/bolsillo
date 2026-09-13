@@ -1,13 +1,16 @@
 "use client";
 
+import { uploadTransactionFile } from "@/lib/upload-transaction-file";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ArrowDownLeft, ArrowUpRight, LoaderCircle } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
+import { AssistedTransactionForm } from "./assisted-transaction-form";
 import { TagSelector } from "@/components/tag-selector";
 import {
   TransactionFilesField,
@@ -24,7 +27,7 @@ import { moneyInputValue, parseMoneyInput } from "@/lib/money";
 import { transactionSchema, type TransactionFormValues } from "@/lib/validators";
 import type { Currency, TransactionType, WalletTag, WalletTransaction } from "@/types/domain";
 
-type TransactionFormProps = {
+export type TransactionFormProps = {
   walletId: Id<"wallets">;
   currency: Currency;
   initialType?: TransactionType;
@@ -39,7 +42,7 @@ function initialFileDrafts(transaction?: WalletTransaction): TransactionFileDraf
   }));
 }
 
-export function TransactionForm({ walletId, currency, initialType = "expense", transaction, onDeletingChange }: TransactionFormProps) {
+export function ManualTransactionForm({ walletId, currency, initialType = "expense", transaction, onDeletingChange }: TransactionFormProps) {
   const router = useRouter();
   const createTransaction = useMutation(api.transactions.createTransaction);
   const updateTransaction = useMutation(api.transactions.updateTransaction);
@@ -154,12 +157,7 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
             const localFile = localFiles[index];
             const upload = uploadById.get(fileId);
             if (!upload || !localFile) throw new Error("No se pudo preparar uno de los archivos.");
-            const response = await fetch(upload.url, {
-              method: "PUT",
-              headers: upload.headers,
-              body: localFile.file,
-            });
-            if (!response.ok) throw new Error(`${localFile.originalName}: R2 rechazó la carga.`);
+            await uploadTransactionFile(upload.url, upload.headers, localFile.file);
             setLocalUploadStatus(localFile.clientId, "uploaded");
           }),
         );
@@ -251,4 +249,18 @@ export function TransactionForm({ walletId, currency, initialType = "expense", t
       </div>
     </form>
   );
+}
+
+// Keep the existing manual flow for accounts outside the pilot. Once an
+// assisted draft opens, a flag change must not unmount or lose its contents.
+export function TransactionForm(props: TransactionFormProps) {
+  const canAI = useFeature("transactions.aiExtract");
+  const canFiles = useFeature("transactions.files");
+  const search = useSearchParams();
+  const [resumeId] = useState(() => search.get("draft") as Id<"transactionDrafts"> | null);
+  const [assisted] = useState(() => !!resumeId || (canAI && canFiles));
+  const draft = useQuery(api.transactionDrafts.get, resumeId ? { draftId: resumeId } : "skip");
+  if (resumeId && draft === undefined) return <div className="form-card" role="status">Recuperando tu borrador…</div>;
+  if (resumeId && (!draft || draft.walletId !== props.walletId || draft.transactionId !== props.transaction?._id || draft.status !== "active")) return <div className="form-card"><p>Este borrador ya no está disponible aquí.</p><a className="button secondary" href={`/wallets/${props.walletId}`}>Volver al bolsillo</a></div>;
+  return assisted ? <AssistedTransactionForm {...props} initialDraft={draft ?? undefined} /> : <ManualTransactionForm {...props} />;
 }

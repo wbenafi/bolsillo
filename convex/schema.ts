@@ -51,6 +51,7 @@ export default defineSchema({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
+    newTransactionMode: v.optional(v.union(v.literal("manual"), v.literal("documents"))),
     platformRole: platformRoleValidator,
     personalAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
@@ -141,6 +142,7 @@ export default defineSchema({
     tagIds: v.optional(v.array(v.id("tags"))),
     fileCount: v.optional(v.number()),
     fileRevision: v.optional(v.number()),
+    revision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -152,6 +154,7 @@ export default defineSchema({
   fileUploadBatches: defineTable({
     accountId: v.id("accounts"),
     walletId: v.id("wallets"),
+    draftId: v.optional(v.id("transactionDrafts")),
     targetTransactionId: v.optional(v.id("transactions")),
     expectedFileRevision: v.optional(v.number()),
     committedTransactionId: v.optional(v.id("transactions")),
@@ -162,7 +165,8 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_account", ["accountId"])
-    .index("by_expiration", ["expiresAt"]),
+    .index("by_expiration", ["expiresAt"])
+    .index("by_draft", ["draftId"]),
 
   transactionFiles: defineTable({
     accountId: v.id("accounts"),
@@ -186,6 +190,31 @@ export default defineSchema({
     .index("by_wallet", ["walletId"])
     .index("by_batch", ["uploadBatchId"])
     .index("by_account", ["accountId"]),
+
+  transactionDrafts: defineTable({
+    accountId: v.id("accounts"), userId: v.id("users"), walletId: v.id("wallets"),
+    transactionId: v.optional(v.id("transactions")), baseRevision: v.number(), baseFileRevision: v.number(),
+    clientKey: v.string(), version: v.number(), mode: v.union(v.literal("manual"), v.literal("documents")),
+    values: v.object({ type: transactionTypeValidator, amount: v.string(), description: v.string(), date: v.string(), notes: v.string(), tagIds: v.array(v.id("tags")) }),
+    fileIds: v.array(v.id("transactionFiles")), selectedFileIds: v.array(v.id("transactionFiles")),
+    reviewedFields: v.array(v.string()), extractionId: v.optional(v.id("transactionExtractions")),
+    status: v.union(v.literal("active"), v.literal("saved"), v.literal("discarded")),
+    savedTransactionId: v.optional(v.id("transactions")), createdAt: v.number(), updatedAt: v.number(), expiresAt: v.number(),
+  }).index("by_user_wallet", ["userId", "walletId"]).index("by_user_key", ["userId", "clientKey"]).index("by_wallet", ["walletId"]).index("by_transaction", ["transactionId"]).index("by_expiration", ["expiresAt"]),
+
+  transactionExtractions: defineTable({
+    accountId: v.id("accounts"), userId: v.id("users"), draftId: v.id("transactionDrafts"),
+    fileIds: v.array(v.id("transactionFiles")), month: v.string(), requestKey: v.optional(v.string()),
+    status: v.union(v.literal("queued"), v.literal("processing"), v.literal("ready"), v.literal("failed"), v.literal("cancelled")),
+    dispatched: v.boolean(), result: v.optional(v.any()), errorCode: v.optional(v.string()),
+    inputTokens: v.optional(v.number()), outputTokens: v.optional(v.number()), costUsd: v.optional(v.number()),
+    createdAt: v.number(), finishedAt: v.optional(v.number()), expiresAt: v.number(),
+  }).index("by_account_created", ["accountId", "createdAt"]).index("by_draft", ["draftId"]).index("by_expiration", ["expiresAt"]),
+
+  aiMonthlyUsage: defineTable({
+    accountId: v.id("accounts"), month: v.string(), used: v.number(), reserved: v.number(), errors: v.number(),
+    inputTokens: v.number(), outputTokens: v.number(), costUsd: v.number(), pricedCalls: v.number(),
+  }).index("by_account_month", ["accountId", "month"]),
 
   r2DeletionJobs: defineTable({
     accountId: v.id("accounts"),

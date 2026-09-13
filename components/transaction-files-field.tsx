@@ -1,5 +1,7 @@
 "use client";
 
+import { createClientId } from "@/lib/client-id";
+
 import { useAction } from "convex/react";
 import { Eye, File, FileImage, FileText, LoaderCircle, Upload, X } from "lucide-react";
 import Image from "next/image";
@@ -126,7 +128,7 @@ export function TransactionFilesField({ files, onChange, disabled = false, loadi
       localObjectUrls.current.add(objectUrl);
       accepted.push({
         kind: "local",
-        clientId: crypto.randomUUID(),
+        clientId: createClientId(),
         file,
         objectUrl,
         originalName: file.name,

@@ -5,6 +5,7 @@ import { featureAccess, requireAccountContext, requireFeature } from "./auth";
 import { requireOwnedWallet } from "./domain";
 import { validateAssignedTagIds } from "./tags";
 import { transactionFields, validatedTransactionFields } from "./transactionDomain";
+import { deleteMovementDrafts } from "./transactionDrafts";
 import { deleteTransactionFiles, publicTransactionFiles } from "./transactionFiles";
 
 function hideFileCount<T extends { fileCount?: number; fileRevision?: number }>(transaction: T) {
@@ -87,7 +88,7 @@ export const updateTransaction = mutation({
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para editar movimientos." });
     }
     const tagIds = await validateAssignedTagIds(ctx, args.tagIds, transaction.walletId, ownerId);
-    await ctx.db.patch(args.transactionId, { ...validatedTransactionFields(args), tagIds, updatedAt: Date.now() });
+    await ctx.db.patch(args.transactionId, { ...validatedTransactionFields(args), tagIds, revision: (transaction.revision ?? 0) + 1, updatedAt: Date.now() });
   },
 });
 
@@ -101,6 +102,7 @@ export const deleteTransaction = mutation({
       throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
     }
     await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
+    await deleteMovementDrafts(ctx, transaction._id);
     await deleteTransactionFiles(ctx, transaction._id, account._id);
     await ctx.db.delete(transactionId);
   },

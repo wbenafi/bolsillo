@@ -10,7 +10,10 @@ import { errorMessage } from "@/lib/errors";
 import { transactionFileKind } from "@/lib/transaction-files";
 import type { TransactionFileDraft } from "@/components/transaction-files-field";
 
+import type { Id } from "@/convex/_generated/dataModel";
+
 type FileViewerDialogProps = {
+  draftId?: Id<"transactionDrafts">;
   file: TransactionFileDraft;
   onClose: () => void;
 };
@@ -25,9 +28,10 @@ function downloadName(file: TransactionFileDraft) {
   return withExtension.replaceAll("/", "-").replaceAll("\\", "-");
 }
 
-export function FileViewerDialog({ file, onClose }: FileViewerDialogProps) {
+export function FileViewerDialog({ file, onClose, draftId }: FileViewerDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const createReadUrl = useAction(api.r2.createReadUrl);
+  const readDraftFile = useAction(api.transactionAI.readDraftFile);
   const [sourceUrl, setSourceUrl] = useState<string>();
   const [text, setText] = useState<string>();
   const [error, setError] = useState<string>();
@@ -53,7 +57,7 @@ export function FileViewerDialog({ file, onClose }: FileViewerDialogProps) {
           if (!canceled) setSourceUrl(file.objectUrl);
           return;
         }
-        const signed = await createReadUrl({ fileId: file._id });
+        const signed = draftId ? await readDraftFile({ draftId, fileId: file._id }) : await createReadUrl({ fileId: file._id });
         const response = await fetch(signed.url, { cache: "no-store" });
         if (!response.ok) throw new Error("No se pudo descargar el archivo privado.");
         const blob = await response.blob();
@@ -73,7 +77,7 @@ export function FileViewerDialog({ file, onClose }: FileViewerDialogProps) {
       canceled = true;
       if (generatedUrl) URL.revokeObjectURL(generatedUrl);
     };
-  }, [createReadUrl, file, kind]);
+  }, [createReadUrl, readDraftFile, draftId, file, kind]);
 
   function download() {
     if (!sourceUrl) return;
