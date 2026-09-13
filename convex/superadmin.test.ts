@@ -65,7 +65,7 @@ describe("superadmin authorization", () => {
       reason: "Revisión administrativa",
     });
 
-    await expect(asMember.query(api.wallets.listActiveWallets, { moneyVersion: 2,})).rejects.toThrow(
+    await expect(asMember.query(api.wallets.listActiveWallets, {})).rejects.toThrow(
       "Esta cuenta está suspendida",
     );
     const audit = await t.run(async (ctx) => await ctx.db.query("adminAuditLog").collect());
@@ -93,7 +93,7 @@ describe("superadmin authorization", () => {
       asMember.mutation(api.transactions.createTransaction, {
         walletId,
         type: "income",
-        moneyVersion: 2 as const, amountMinor: 1000,
+        amountMinor: 1000,
         description: "Ingreso",
         date: "2026-08-30",
       }),

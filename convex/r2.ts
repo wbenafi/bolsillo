@@ -13,7 +13,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, internalAction } from "./_generated/server";
-import { requireMoneyVersion, transactionFields } from "./transactionDomain";
+import { transactionFields } from "./transactionDomain";
 import { contentMatchesFileType } from "../lib/transaction-file-content";
 import { readTransactionFileBody } from "../lib/read-transaction-file-body";
 import { MAX_TRANSACTION_FILE_BYTES, type TransactionFileType } from "../lib/transaction-files";
@@ -182,7 +182,6 @@ export const finalizeUpload = action({
     ...transactionFields,
   },
   handler: async (ctx, args): Promise<Id<"transactions">> => {
-    requireMoneyVersion(args.moneyVersion);
     const { batch, files } = await ctx.runQuery(internal.transactionFiles.getBatchForUpload, {
       batchId: args.batchId,
     });

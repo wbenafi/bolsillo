@@ -1,5 +1,4 @@
-import { addMoney, currentMoneyAmount } from "../lib/money";
-import { moneyVersionFields, requireMoneyVersion } from "./transactionDomain";
+import { addMoney } from "../lib/money";
 import { ConvexError, v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
@@ -24,7 +23,7 @@ async function walletSummary(
   let latestMovementAt: string | undefined;
 
   for (const transaction of transactions) {
-    const amount = currentMoneyAmount(transaction, wallet.currency);
+    const amount = transaction.amountMinor;
     if (transaction.type === "income") totalIncome = addMoney(totalIncome, amount);
     else totalExpense = addMoney(totalExpense, amount);
     if (!latestMovementAt || transaction.date > latestMovementAt) latestMovementAt = transaction.date;
@@ -40,10 +39,9 @@ async function walletSummary(
 }
 
 export const listActiveWallets = query({
-  args: moneyVersionFields,
-  handler: async (ctx, { moneyVersion }) => {
+  args: {},
+  handler: async (ctx) => {
     const { account } = await requireAccountContext(ctx);
-    requireMoneyVersion(moneyVersion);
     const wallets = await ctx.db
       .query("wallets")
       .withIndex("by_account", (q) => q.eq("accountId", account._id))
@@ -61,10 +59,9 @@ export const listActiveWallets = query({
 });
 
 export const listArchivedWallets = query({
-  args: moneyVersionFields,
-  handler: async (ctx, { moneyVersion }) => {
+  args: {},
+  handler: async (ctx) => {
     const { account } = await requireAccountContext(ctx);
-    requireMoneyVersion(moneyVersion);
     const wallets = await ctx.db
       .query("wallets")
       .withIndex("by_account", (q) => q.eq("accountId", account._id))
@@ -79,11 +76,10 @@ export const listArchivedWallets = query({
 });
 
 export const getWallet = query({
-  args: { walletId: v.id("wallets"), ...moneyVersionFields },
-  handler: async (ctx, { walletId, moneyVersion }) => {
+  args: { walletId: v.id("wallets") },
+  handler: async (ctx, { walletId }) => {
     const { ownerId, account } = await requireAccountContext(ctx);
     const wallet = await requireOwnedWallet(ctx, walletId, ownerId, account._id);
-    requireMoneyVersion(moneyVersion);
     return { ...wallet, ...(await walletSummary(ctx, wallet)) };
   },
 });

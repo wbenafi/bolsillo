@@ -45,6 +45,14 @@ export const fileUploadBatchStatusValidator = v.union(
 );
 
 export default defineSchema({
+  dataMigrations: defineTable({
+    name: v.string(),
+    completedAt: v.number(),
+    transactionCount: v.number(),
+    crcCount: v.number(),
+    usdCount: v.number(),
+  }).index("by_name", ["name"]),
+
   users: defineTable({
     externalId: v.string(),
     tokenIdentifier: v.optional(v.string()),
@@ -136,8 +144,6 @@ export default defineSchema({
     walletId: v.id("wallets"),
     type: transactionTypeValidator,
     amountMinor: v.number(),
-    // Absent: original whole-CRC / USD-cent format. 2: hundredths for both.
-    moneyVersion: v.optional(v.literal(2)),
     description: v.string(),
     date: v.string(),
     notes: v.optional(v.string()),

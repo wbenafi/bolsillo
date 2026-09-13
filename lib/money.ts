@@ -1,22 +1,7 @@
 import type { Currency, TransactionType } from "@/types/domain";
 
-export const MONEY_VERSION = 2 as const;
+// All persisted amounts use integer hundredths for CRC and USD.
 const currencyDecimals: Record<Currency, number> = { CRC: 2, USD: 2 };
-
-/** Missing version is the original format: whole CRC, hundredths of USD.
- * Convert on read only; never mutate historical records or guess from magnitude.
- */
-export function currentMoneyAmount(
-  transaction: { amountMinor: number; moneyVersion?: typeof MONEY_VERSION },
-  currency: Currency,
-) {
-  const amount = transaction.moneyVersion === undefined && currency === "CRC"
-    ? transaction.amountMinor * 100 : transaction.amountMinor;
-  if (!Number.isSafeInteger(transaction.amountMinor) || transaction.amountMinor <= 0 || !Number.isSafeInteger(amount)) {
-    throw new Error("El monto excede la precisión soportada. No se modificó el movimiento.");
-  }
-  return amount;
-}
 
 export function addMoney(a: number, b: number) {
   const sum = a + b;

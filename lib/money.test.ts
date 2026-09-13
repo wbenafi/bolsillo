@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateWalletTotals, currentMoneyAmount, formatMoney, moneyInputValue, parseMoneyInput } from "./money";
+import { calculateWalletTotals, formatMoney, moneyInputValue, parseMoneyInput } from "./money";
 
 describe("calculateWalletTotals", () => {
   it("calcula ingresos, gastos y saldo positivo", () => {
@@ -67,20 +67,12 @@ describe("decimal money and historical data", () => {
   it.each(["1,000", "1.000", "45.181,50", "45,181.50", "1 2", "1e3", "NaN", "Infinity", "-1", "0", "0.0001", "10.", "1\n000"])("rejects ambiguous or invalid input %s", input => {
     expect(parseMoneyInput(input, "CRC")).toBeNull();
   });
-  it("converts only unversioned CRC, without mutating stored records", () => {
-    const legacy = Object.freeze({ amountMinor: 45181 });
-    expect(currentMoneyAmount(legacy, "CRC")).toBe(4518100);
-    expect(currentMoneyAmount(legacy, "USD")).toBe(45181);
-    expect(currentMoneyAmount({ amountMinor: 4518150, moneyVersion: 2 }, "CRC")).toBe(4518150);
-    expect(legacy.amountMinor).toBe(45181);
-  });
   it("keeps exact cents at the integer precision boundary and rejects overflow", () => {
     const max = Number.MAX_SAFE_INTEGER;
     expect(parseMoneyInput("90071992547409.91", "CRC")).toBe(max);
     expect(moneyInputValue(max, "CRC")).toBe("90071992547409.91");
     expect(formatMoney(max, "CRC").replace(/\s/g, "")).toBe("₡90071992547409,91");
     expect(parseMoneyInput("90071992547409.92", "CRC")).toBeNull();
-    expect(() => currentMoneyAmount({ amountMinor: max }, "CRC")).toThrow("precisión");
     expect(() => calculateWalletTotals([{ type: "income", amountMinor: max }, { type: "income", amountMinor: 1 }])).toThrow("precisión");
   });
   it("adds fractional amounts exactly, including a negative balance", () => {

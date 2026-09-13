@@ -1,5 +1,4 @@
-import { addMoney, currentMoneyAmount } from "../lib/money";
-import { moneyVersionFields, requireMoneyVersion } from "./transactionDomain";
+import { addMoney } from "../lib/money";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
@@ -138,10 +137,9 @@ export const listAccounts = query({
 });
 
 export const getAccount = query({
-  args: { accountId: v.id("accounts"), ...moneyVersionFields },
-  handler: async (ctx, { accountId, moneyVersion }) => {
+  args: { accountId: v.id("accounts") },
+  handler: async (ctx, { accountId }) => {
     await requireSuperadmin(ctx);
-    requireMoneyVersion(moneyVersion);
     const account = await requireAccount(ctx, accountId);
     const [owner, memberships, wallets, overrides, recentAudit] = await Promise.all([
       ctx.db.get(account.primaryOwnerUserId),
@@ -172,7 +170,7 @@ export const getAccount = query({
         let totalIncome = 0;
         let totalExpense = 0;
         for (const transaction of transactions) {
-          const amount = currentMoneyAmount(transaction, wallet.currency);
+          const amount = transaction.amountMinor;
           if (transaction.type === "income") totalIncome = addMoney(totalIncome, amount);
           else totalExpense = addMoney(totalExpense, amount);
         }

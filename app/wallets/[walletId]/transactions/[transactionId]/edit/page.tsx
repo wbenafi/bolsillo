@@ -1,7 +1,5 @@
 "use client";
 
-import { MONEY_VERSION } from "@/lib/money";
-
 import { useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -20,8 +18,8 @@ export default function EditTransactionPage() {
   const params = useParams<{ walletId: string; transactionId: string }>();
   const walletId = params.walletId as Id<"wallets">;
   const transactionId = params.transactionId as Id<"transactions">;
-  const wallet = useQuery(api.wallets.getWallet, { walletId, moneyVersion: MONEY_VERSION }) as WalletSummary | undefined;
-  const transaction = useQuery(api.transactions.getTransaction, isDeleting ? "skip" : { transactionId, moneyVersion: MONEY_VERSION }) as WalletTransaction | undefined;
+  const wallet = useQuery(api.wallets.getWallet, { walletId }) as WalletSummary | undefined;
+  const transaction = useQuery(api.transactions.getTransaction, isDeleting ? "skip" : { transactionId }) as WalletTransaction | undefined;
   const canManageTransactions = useFeature("transactions.manage");
   if (!canManageTransactions) return <main className="page-shell"><FeatureUnavailable message="La administración de movimientos está deshabilitada para esta cuenta." /></main>;
   if (isDeleting) return <main className="page-shell narrow"><LoadingState label="Eliminando movimiento…" /></main>;

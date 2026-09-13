@@ -13,7 +13,7 @@ import { LoadingState } from "@/components/ui-states";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { errorMessage } from "@/lib/errors";
-import { MONEY_VERSION, formatMoney } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 
 type FeatureRowProps = {
   accountId: Id<"accounts">;
@@ -84,7 +84,7 @@ function FeatureRow({ accountId, feature, definition }: FeatureRowProps) {
 export default function AccountDetailPage() {
   const { accountId: rawAccountId } = useParams<{ accountId: string }>();
   const accountId = rawAccountId as Id<"accounts">;
-  const detail = useQuery(api.superadmin.getAccount, { accountId, moneyVersion: MONEY_VERSION });
+  const detail = useQuery(api.superadmin.getAccount, { accountId });
   const setStatus = useMutation(api.superadmin.setAccountStatus);
   const setRole = useMutation(api.superadmin.setPlatformRole);
   const [saving, setSaving] = useState(false);

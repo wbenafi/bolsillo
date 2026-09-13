@@ -1,7 +1,5 @@
 "use client";
 
-import { MONEY_VERSION } from "@/lib/money";
-
 import { useQuery } from "convex/react";
 import { Archive, Plus } from "lucide-react";
 import Link from "next/link";
@@ -13,7 +11,7 @@ import { api } from "@/convex/_generated/api";
 import type { WalletSummary } from "@/types/domain";
 
 export default function WalletsPage() {
-  const wallets = useQuery(api.wallets.listActiveWallets, { moneyVersion: MONEY_VERSION }) as WalletSummary[] | undefined;
+  const wallets = useQuery(api.wallets.listActiveWallets) as WalletSummary[] | undefined;
   const canCreateWallets = useFeature("wallets.create");
 
   return (

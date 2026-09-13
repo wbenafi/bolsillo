@@ -23,7 +23,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { todayInputValue } from "@/lib/date";
 import { errorMessage } from "@/lib/errors";
-import { MONEY_VERSION, moneyInputValue, parseMoneyInput } from "@/lib/money";
+import { moneyInputValue, parseMoneyInput } from "@/lib/money";
 import { transactionSchema, type TransactionFormValues } from "@/lib/validators";
 import type { Currency, TransactionType, WalletTag, WalletTransaction } from "@/types/domain";
 
@@ -120,7 +120,6 @@ export function ManualTransactionForm({ walletId, currency, initialType = "expen
     const payload = {
       type: values.type,
       amountMinor,
-      moneyVersion: MONEY_VERSION,
       description: values.description.trim(),
       date: values.date,
       notes: values.notes.trim() || undefined,

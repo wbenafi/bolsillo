@@ -9,7 +9,7 @@ enableLocalIdentity(identity);
 const walletId = run("wallets:createWallet", { name: "Prueba automática de archivos", currency: "CRC" });
 const content = "Comprobante local de Bolsillo\n";
 const file = { originalName: "comprobante.txt", mimeType: "text/plain", sizeBytes: Buffer.byteLength(content), order: 0 };
-const fields = { type: "expense", moneyVersion: 2, amountMinor: 1500, description: "Prueba local R2", date: new Date().toISOString().slice(0, 10) };
+const fields = { type: "expense", amountMinor: 1500, description: "Prueba local R2", date: new Date().toISOString().slice(0, 10) };
 let batchId;
 let transactionId;
 try {
@@ -23,7 +23,7 @@ try {
     const response = await fetch(url.url, { method: "PUT", headers: url.headers, body: Buffer.alloc(2 * 1024 * 1024 + 1, 65) });
     assert.equal(response.status, 200);
     assert.throws(() => run("r2:finalizeUpload", { batchId: oversized.batchId, retainedFiles: [], ...fields }), /tamaño/);
-    assert.equal(run("transactions:listTransactionsByWallet", { moneyVersion: 2, walletId }).length, 0);
+    assert.equal(run("transactions:listTransactionsByWallet", { walletId }).length, 0);
   } finally { run("transactionFiles:abortUpload", { batchId: oversized.batchId }); }
   ({ batchId } = run("transactionFiles:beginUpload", { walletId, retainedFileIds: [], files: [file] }));
   const { uploads: [upload] } = run("r2:createUploadUrls", { batchId });
@@ -52,9 +52,9 @@ try {
   const tampered = new URL(read.url);
   tampered.searchParams.set("X-Amz-Signature", "0".repeat(64));
   assert.equal((await fetch(tampered)).status, 403, "La firma debe validarse");
-  run("transactionFiles:updateTransactionWithFiles", { transactionId, expectedFileRevision: run("transactions:getTransaction", { moneyVersion: 2, transactionId }).fileRevision ?? 0, files: [{ fileId: upload.fileId, displayName: "Factura local", order: 0 }], ...fields });
+  run("transactionFiles:updateTransactionWithFiles", { transactionId, expectedFileRevision: run("transactions:getTransaction", { transactionId }).fileRevision ?? 0, files: [{ fileId: upload.fileId, displayName: "Factura local", order: 0 }], ...fields });
   assert.equal(run("transactionFiles:listByTransaction", { transactionId })[0].displayName, "Factura local");
-  run("transactionFiles:updateTransactionWithFiles", { transactionId, expectedFileRevision: run("transactions:getTransaction", { moneyVersion: 2, transactionId }).fileRevision ?? 0, files: [], ...fields });
+  run("transactionFiles:updateTransactionWithFiles", { transactionId, expectedFileRevision: run("transactions:getTransaction", { transactionId }).fileRevision ?? 0, files: [], ...fields });
   assert.equal(run("transactionFiles:listByTransaction", { transactionId }).length, 0);
   let status;
   for (let attempt = 0; attempt < 30; attempt++) {

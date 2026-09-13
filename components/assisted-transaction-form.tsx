@@ -14,7 +14,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { todayInputValue } from "@/lib/date";
 import { errorMessage } from "@/lib/errors";
-import { MONEY_VERSION, moneyInputValue, parseMoneyInput } from "@/lib/money";
+import { moneyInputValue, parseMoneyInput } from "@/lib/money";
 import { prepareReceiptFile } from "@/lib/prepare-receipt-file";
 import { normalizedTransactionFileType } from "@/lib/transaction-files";
 import { extractionErrors, extractionFieldNames, type ExtractionField, type ExtractionResult } from "@/lib/transaction-extraction";
@@ -231,7 +231,7 @@ export function AssistedTransactionForm({ walletId, currency, initialType = "exp
     if (!amountMinor) { setErrors({ amount: "Ingresá un monto mayor que cero con hasta dos decimales, sin puntos ni comas de miles." }); setReviewOpen(true); return; }
     setSubmitting(true); setMessage(undefined);
     try {
-      const payload = { type: parsed.data.type, description: parsed.data.description, date: parsed.data.date, notes: parsed.data.notes, tagIds: parsed.data.tagIds, amountMinor, moneyVersion: MONEY_VERSION };
+      const payload = { type: parsed.data.type, description: parsed.data.description, date: parsed.data.date, notes: parsed.data.notes, tagIds: parsed.data.tagIds, amountMinor };
       if (idRef.current || canRead) { await flush(); await save({ draftId: await ensureDraft(), version: version.current, ...payload }); }
       else if (transaction) await updateManual({ transactionId: transaction._id, ...payload });
       else await createManual({ walletId, ...payload });
