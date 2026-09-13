@@ -66,3 +66,18 @@ Changing a wallet's currency remains blocked while it contains transactions,
 active drafts, or pending uploads, so existing money cannot be reinterpreted.
 Previously discarded AI suggestions need re-extraction or manual correction;
 the migration cannot recover an amount that was already stored as `null`.
+
+## Production execution — 2026-09-13
+
+Completed against the production deployment after a full backup and an isolated
+rehearsal using the production monetary snapshot. Converted all 59 CRC
+transactions across five wallets; there were no USD transactions to convert.
+The before/after exports confirmed that only those 59 `amountMinor` fields changed
+(by exactly 100), and all other transaction fields and application tables stayed
+unchanged. Every wallet's income, expenses, and balance reconciled. Production
+wallet queries also returned the expected totals, and a retry reported
+`alreadyApplied: true` without modifying data. Before/after exports and verification
+reports are retained privately outside the repository.
+
+The matching decimal-aware code was deployed from this PR. Include this change
+in `main` before another production release; the old code assumes whole CRC.
