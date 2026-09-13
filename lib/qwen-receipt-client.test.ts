@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createReceiptClient, requestReceipt } from "./qwen-receipt-client";
 
 describe("Qwen OpenAI-compatible transport", () => {
-  it("sends the exact selected model, image bytes, JSON format and bounded output", async () => {
+  it("disables reasoning while sending the selected model, image bytes, JSON format and bounded output", async () => {
     let body: Record<string, unknown> = {};
     const transport = vi.fn<typeof fetch>(async (url, init) => {
       expect(String(url)).toBe("https://provider.test/v1/chat/completions");
@@ -10,7 +10,7 @@ describe("Qwen OpenAI-compatible transport", () => {
       return new Response(JSON.stringify({ id: "receipt-test", object: "chat.completion", model: "qwen3.8-flash", created: 0, choices: [{ index: 0, message: { role: "assistant", content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 } }), { headers: { "content-type": "application/json" } });
     });
     const response = await requestReceipt(createReceiptClient("test-key", "https://provider.test/v1", transport), [{ type: "text", text: "Archivo 1" }, { type: "image_url", image_url: { url: "data:image/jpeg;base64,dGVzdA==" } }]);
-    expect(body).toMatchObject({ model: "qwen3.8-flash", reasoning_effort: "low", max_tokens: 4096, response_format: { type: "json_object" } });
+    expect(body).toMatchObject({ model: "qwen3.8-flash", reasoning_effort: "none", max_tokens: 4096, response_format: { type: "json_object" } });
     expect(body.tools).toBeUndefined();
     expect(JSON.stringify(body.messages)).toContain("data:image/jpeg;base64,");
     expect(response.usage?.prompt_tokens).toBe(120);

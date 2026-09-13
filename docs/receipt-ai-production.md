@@ -1,7 +1,8 @@
 # Lectura de comprobantes: producción
 
 La función permite extraer un movimiento desde imágenes, PDF o TXT mediante
-`qwen3.8-flash` y el SDK de OpenAI. La persona revisa y guarda siempre.
+`qwen3.8-flash` y el SDK de OpenAI, con `reasoning_effort: "none"` para reducir
+la espera. La persona revisa y guarda siempre.
 
 ## Variables del backend
 
@@ -53,3 +54,43 @@ usuario, extrajeron CRC 45.181 y USD 4,95 correctamente; la segunda produjo la
 advertencia de moneda en un bolsillo CRC. Esas llamadas tardaron aproximadamente
 24 y 16 segundos, por encima del objetivo de 5–10 segundos. Dos muestras no
 constituyen una evaluación general de precisión.
+
+## Comparación de razonamiento: 13 de septiembre de 2026
+
+Se compararon `low` y `none` con cinco comprobantes: las dos imágenes aportadas
+por el usuario y las muestras públicas
+[000](https://github.com/zzzDavid/ICDAR-2019-SROIE/blob/master/data/img/000.jpg),
+[010](https://github.com/zzzDavid/ICDAR-2019-SROIE/blob/master/data/img/010.jpg) y
+[020](https://github.com/zzzDavid/ICDAR-2019-SROIE/blob/master/data/img/020.jpg)
+de SROIE. Tres repeticiones por imagen y configuración dieron 30 llamadas reales,
+secuenciales, alternando el orden de las configuraciones y rotando las imágenes.
+Solo cambió `reasoning_effort`: mismos bytes, prompt, bolsillo CRC, etiquetas
+vacías, límite de 4096 tokens, timeout de 30 segundos y ningún reintento automático.
+
+| Resultado | `low` | `none` |
+| --- | --- | --- |
+| Mediana de respuesta | 16,73 s | 10,18 s |
+| Percentil 95 (interpolado) | 28,20 s | 24,83 s |
+| Respuestas válidas | 15/15 | 15/15 |
+| Montos correctos en la respuesta del modelo | 15/15 | 15/15 |
+| Montos correctos conservados tras validación | 13/15 | 10/15 |
+| Fechas correctas | 15/15 | 14/15 |
+
+Se adopta `none` por una mediana 39% menor en esta muestra, aceptando resultados
+parciales para revisión manual. `none` invirtió día/mes una vez, omitió la moneda
+de Starbucks dos veces y dejó el tipo de movimiento de la factura vacío dos
+veces por falta de contexto sobre el titular. Con `low`, una respuesta asignó
+CRC al recibo estadounidense. Los tipos vacíos son abstenciones, no etiquetas
+incorrectas.
+
+La validación actual puede descartar un monto fraccionario correctamente leído
+cuando la moneda falta o se identifica erróneamente como CRC. Esa limitación
+permanece pendiente; cambiar el razonamiento no la resuelve.
+
+Los tiempos cubren únicamente la petición al proveedor, sin carga de archivos,
+procesamiento de PDF ni espera de la aplicación. Algunas llamadas con `none`
+tardaron 24–26 segundos. Cinco imágenes no garantizan precisión o latencia
+general; no se probaron PDF, ingresos ni documentos de varias páginas. La caché
+del proveedor y las condiciones de red no estuvieron controladas, y las muestras
+públicas podrían formar parte de datos de entrenamiento. No se enviaron
+comprobantes de producción durante esta comparación.
