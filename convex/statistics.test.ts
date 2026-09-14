@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
+import { lastDaysRange, MAX_STATISTICS_DAYS } from "../lib/statistics";
 
 async function setup() {
   const t = convexTest(schema, modules);
@@ -32,11 +33,27 @@ describe("wallet statistics queries", () => {
     const result = await d.owner.query(api.transactions.getWalletStatistics, d.args);
     expect(result.current).toMatchObject({ income: 1000, expense: 200, net: 800, dailyExpense: 200 / 7, count: 3 });
     expect(result.previous).toMatchObject({ start: "2026-08-25", end: "2026-08-31", income: 300, expense: 100, count: 2 });
-    expect(result.wallet.currency).toBe("CRC");
+    expect(result.wallet).toMatchObject({ _id: d.walletId, name: "Casa", currency: "CRC" });
+    expect(result.group).toBe("day");
     expect(result.comparisonAvailable).toBe(true);
     expect(result.trend).toHaveLength(7);
     expect(result.breakdown.expense.overlapping).toBe(true);
     expect(result.breakdown.expense.rows.reduce((sum, row) => sum + row.amount, 0)).toBe(350);
+  });
+  it("bounds direct multi-year daily and weekly requests without changing report totals or drilldowns", async () => {
+    const d = await setup();
+    const range = lastDaysRange("2026-09-13", MAX_STATISTICS_DAYS);
+    for (const group of ["day", "week"] as const) {
+      const result = await d.owner.query(api.transactions.getWalletStatistics, { walletId: d.walletId, ...range, group });
+      expect(result.group).toBe("month");
+      expect(result.trend.length).toBeLessThanOrEqual(122);
+      expect(result.current).toMatchObject({ income: 1300, expense: 189187, count: 7 });
+      expect(result.trend.reduce((sum, bucket) => sum + bucket.expense, 0)).toBe(result.current.expense);
+      const bucket = result.trend.at(-1)!;
+      expect(bucket).toMatchObject({ start: "2026-09-01", end: "2026-09-13", count: 4 });
+      const detail = await d.owner.query(api.transactions.listStatisticsTransactions, { walletId: d.walletId, start: bucket.start, end: bucket.end, paginationOpts: { cursor: null, numItems: 30 } });
+      expect(detail.page).toHaveLength(bucket.count);
+    }
   });
   it("enforces identity, wallet ownership and account suspension for both endpoints", async () => {
     const d = await setup();

@@ -13,7 +13,7 @@ import { StatisticsDashboard, type StatisticsSelection } from "@/components/stat
 import { StatisticsTransactions } from "@/components/statistics-transactions";
 import { LoadingState } from "@/components/ui-states";
 import { todayInputValue } from "@/lib/date";
-import { defaultGroup, lastDaysRange, rangeError, statisticsRangeLabel, type DateRange, type StatisticsGroup } from "@/lib/statistics";
+import { boundedGroup, defaultGroup, lastDaysRange, rangeError, statisticsRangeLabel, type DateRange, type StatisticsGroup } from "@/lib/statistics";
 
 function WalletStatisticsPage() {
   const { walletId: rawWalletId } = useParams<{ walletId: string }>();
@@ -25,9 +25,10 @@ function WalletStatisticsPage() {
   const range = { start: searchParams.get("start") ?? fallback.start, end: searchParams.get("end") ?? fallback.end };
   const validationError = rangeError(range) ?? (range.end > today ? "Elegí una fecha final hasta hoy." : null);
   const groupParam = searchParams.get("group");
-  const group: StatisticsGroup = groupParam === "day" || groupParam === "week" || groupParam === "month" ? groupParam : validationError ? "day" : defaultGroup(range);
-  const wallet = useQuery(api.wallets.getWallet, { walletId });
+  const requestedGroup: StatisticsGroup = groupParam === "day" || groupParam === "week" || groupParam === "month" ? groupParam : validationError ? "day" : defaultGroup(range);
+  const group = validationError ? "day" : boundedGroup(range, requestedGroup);
   const data = useQuery(api.transactions.getWalletStatistics, validationError ? "skip" : { walletId, ...range, group });
+  const wallet = data?.wallet;
   const [focused, setFocused] = useState<{ rangeKey: string; selection: StatisticsSelection } | null>(null);
   const rangeKey = `${range.start}:${range.end}`;
   const selection = focused?.rangeKey === rangeKey ? focused.selection : { ...range, label: "Movimientos del período" };
@@ -51,7 +52,7 @@ function WalletStatisticsPage() {
     {wallet?.archivedAt && <p className="statistics-note">Este bolsillo está archivado. Podés seguir consultando su historial.</p>}
     <StatisticsRangePicker key={`${rangeKey}:${searchParams.get("period")}`} range={range} today={today} preset={searchParams.get("period")} onChange={changeRange} />
     {validationError ? <p className="field-error" role="alert">{validationError}</p> : !data ? <LoadingState label="Calculando tus estadísticas…" /> : <>
-      <StatisticsDashboard data={data} group={group} onGroupChange={next => {
+      <StatisticsDashboard data={data} group={data.group} onGroupChange={next => {
         const params = new URLSearchParams(searchParams.toString());
         params.set("group", next);
         router.replace(`/wallets/${walletId}/statistics?${params}`, { scroll: false });

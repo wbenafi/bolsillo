@@ -1,6 +1,8 @@
 /** Calendar-only arithmetic: transaction dates do not represent instants in time. */
 const DAY_MS = 86_400_000;
 export const MAX_STATISTICS_DAYS = 3660;
+export const MAX_DAILY_STATISTICS_DAYS = 90;
+export const MAX_WEEKLY_STATISTICS_DAYS = 730;
 export type DateRange = { start: string; end: string };
 export type StatisticsGroup = "day" | "week" | "month";
 export type StatisticsMovement = {
@@ -45,6 +47,15 @@ export function defaultGroup(range: DateRange): StatisticsGroup {
   return days <= 14 ? "day" : days <= 180 ? "week" : "month";
 }
 
+/** Keep both chart bars and accessible table rows bounded for long reports. */
+export function boundedGroup(range: DateRange, requested: StatisticsGroup): StatisticsGroup {
+  const days = rangeDays(range);
+  if (requested === "month") return "month";
+  if (days > MAX_WEEKLY_STATISTICS_DAYS) return "month";
+  if (requested === "day" && days > MAX_DAILY_STATISTICS_DAYS) return "week";
+  return requested;
+}
+
 export function periodTotals(transactions: readonly StatisticsMovement[], days: number) {
   let income = 0;
   let expense = 0;
@@ -60,6 +71,7 @@ export function amountChange(current: number, previous: number) {
 }
 
 export function buildTrend(transactions: readonly StatisticsMovement[], range: DateRange, group: StatisticsGroup) {
+  group = boundedGroup(range, group);
   const buckets: Array<DateRange & { income: number; expense: number; count: number }> = [];
   let start = range.start;
   while (start <= range.end) {

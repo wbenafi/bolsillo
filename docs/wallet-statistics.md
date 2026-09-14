@@ -23,9 +23,13 @@ Un movimiento con varios tags aparece en cada tag asignado, pero se cuenta una s
 
 Las semanas van de lunes a domingo y los meses siguen el calendario. Los extremos del gráfico se recortan al rango seleccionado. Se admiten hasta 3660 días por consulta. La interfaz no permite fechas posteriores a hoy.
 
+La vista diaria admite hasta 90 días y la semanal hasta 730 días. Los rangos más largos se agrupan automáticamente por semana o mes, incluso al abrir una URL con una agrupación incompatible. El selector explica cómo recuperar más detalle al acortar el período. El servidor aplica los mismos límites; el gráfico y la tabla tienen como máximo 122 intervalos en los rangos admitidos. Los totales y el detalle paginado conservan todo el período seleccionado.
+
 ## Implementación y verificación
 
 `transactions.getWalletStatistics` consulta el índice existente `by_wallet_date` para el período actual y anterior. `transactions.listStatisticsTransactions` pagina el detalle con el mismo índice, filtrando tipo y tags. Las consultas vuelven a validar identidad, cuenta y propiedad del bolsillo. No se requieren nuevas tablas ni dependencias.
+
+El encabezado reutiliza los datos del bolsillo incluidos en la respuesta de estadísticas. Esta ruta no consulta el resumen de saldo de todo el historial.
 
 El filtro por tags conserva los cursores originales incluso si una página no contiene coincidencias. En ese caso, la interfaz permite cargar más registros sin declarar que la búsqueda terminó.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountChange, buildTrend, lastDaysRange, periodTotals, previousRange, rangeDays, rangeError, tagBreakdown } from "./statistics";
+import { amountChange, boundedGroup, buildTrend, lastDaysRange, MAX_STATISTICS_DAYS, periodTotals, previousRange, rangeDays, rangeError, tagBreakdown } from "./statistics";
 
 describe("statistics calendar ranges", () => {
   it("includes today and crosses leap days and year boundaries", () => {
@@ -42,6 +42,33 @@ describe("statistics totals and comparisons", () => {
 });
 
 describe("trend and tag charts", () => {
+  it.each([
+    [90, "day", "day"], [91, "day", "week"],
+    [730, "day", "week"], [730, "week", "week"],
+    [731, "day", "month"], [731, "week", "month"],
+    [7, "month", "month"], [7, "week", "week"],
+  ] as const)("bounds a %i-day %s request to %s", (days, requested, expected) => {
+    const range = lastDaysRange("2026-09-13", days);
+    expect(boundedGroup(range, requested)).toBe(expected);
+  });
+  it("bounds the longest report for every grouping and preserves totals and date coverage", () => {
+    const range = lastDaysRange("2026-09-13", MAX_STATISTICS_DAYS);
+    const transactions = [
+      { type: "income" as const, amountMinor: 10001, date: range.start },
+      { type: "expense" as const, amountMinor: 303, date: "2024-02-29" },
+      { type: "expense" as const, amountMinor: 101, date: range.end },
+    ];
+    for (const group of ["day", "week", "month"] as const) {
+      const buckets = buildTrend(transactions, range, group);
+      expect(buckets.length).toBeLessThanOrEqual(122);
+      expect(buckets[0].start).toBe(range.start);
+      expect(buckets.at(-1)?.end).toBe(range.end);
+      expect(buckets.reduce((days, bucket) => days + rangeDays(bucket), 0)).toBe(MAX_STATISTICS_DAYS);
+      expect(buckets.reduce((sum, bucket) => sum + bucket.income, 0)).toBe(10001);
+      expect(buckets.reduce((sum, bucket) => sum + bucket.expense, 0)).toBe(404);
+      expect(buckets.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(3);
+    }
+  });
   it("fills missing dates, excludes outside records and sorts input", () => {
     const buckets = buildTrend([
       { type: "expense", amountMinor: 300, date: "2026-09-03" },

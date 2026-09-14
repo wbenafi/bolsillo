@@ -5,7 +5,7 @@ import { ArrowDownLeft, ArrowUpRight, ArrowRight } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import { formatMoney } from "@/lib/money";
-import { amountChange, statisticsDate, statisticsRangeLabel, type DateRange, type StatisticsGroup } from "@/lib/statistics";
+import { amountChange, MAX_DAILY_STATISTICS_DAYS, MAX_WEEKLY_STATISTICS_DAYS, statisticsDate, statisticsRangeLabel, type DateRange, type StatisticsGroup } from "@/lib/statistics";
 import type { Currency, TransactionType } from "@/types/domain";
 
 export type WalletStatistics = FunctionReturnType<typeof api.transactions.getWalletStatistics>;
@@ -63,7 +63,8 @@ export function StatisticsDashboard({ data, group, onGroupChange, onSelect }: {
 
       {data.current.count === 0 ? <section className="state-card statistics-empty"><h2>No hay movimientos en este período</h2><p>Probá otras fechas o registrá un ingreso o un gasto desde Movimientos. Tus totales para este período son cero.</p></section> : <>
         <section className="statistics-section" aria-labelledby="statistics-trend-title">
-          <div className="statistics-section-heading"><div><h2 id="statistics-trend-title">Ingresos y gastos en el tiempo</h2><p>Seleccioná una barra para ver los movimientos de esas fechas.</p></div><div className="field statistics-group-field"><label htmlFor="statistics-group">Agrupar por</label><select id="statistics-group" value={group} onChange={event => onGroupChange(event.target.value as StatisticsGroup)}><option value="day">Día</option><option value="week">Semana</option><option value="month">Mes</option></select></div></div>
+          <div className="statistics-section-heading"><div><h2 id="statistics-trend-title">Ingresos y gastos en el tiempo</h2><p>Seleccioná una barra para ver los movimientos de esas fechas.</p></div><div className="field statistics-group-field"><label htmlFor="statistics-group">Agrupar por</label><select id="statistics-group" value={group} aria-describedby={data.days > MAX_DAILY_STATISTICS_DAYS ? "statistics-group-help" : undefined} onChange={event => onGroupChange(event.target.value as StatisticsGroup)}><option value="day" disabled={data.days > MAX_DAILY_STATISTICS_DAYS}>Día</option><option value="week" disabled={data.days > MAX_WEEKLY_STATISTICS_DAYS}>Semana</option><option value="month">Mes</option></select></div></div>
+          {data.days > MAX_DAILY_STATISTICS_DAYS && <p id="statistics-group-help" className="statistics-note">{data.days > MAX_WEEKLY_STATISTICS_DAYS ? `Para períodos de más de ${MAX_WEEKLY_STATISTICS_DAYS} días, el gráfico se agrupa por mes.` : `La vista diaria está disponible para períodos de hasta ${MAX_DAILY_STATISTICS_DAYS} días.`} Acortá el período para ver más detalle.</p>}
           <div className="statistics-chart-legend"><span className="income"><ArrowDownLeft size={16} /> Ingresos</span><span className="expense"><ArrowUpRight size={16} /> Gastos</span><span>Escala en {currency} · máximo {money(maximum)}</span></div>
           <div className="statistics-chart-scroll" role="region" aria-label="Gráfico de ingresos y gastos; desplazá horizontalmente para ver todas las fechas" tabIndex={0}>
             <div className="statistics-chart" style={{ minWidth: Math.max(280, data.trend.length * 32) }}>

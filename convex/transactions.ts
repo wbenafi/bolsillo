@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { buildTrend, periodTotals, previousRange, rangeDays, rangeError, tagBreakdown } from "../lib/statistics";
+import { boundedGroup, buildTrend, periodTotals, previousRange, rangeDays, rangeError, tagBreakdown } from "../lib/statistics";
 
 import { mutation, query } from "./_generated/server";
 import { featureAccess, requireAccountContext, requireFeature } from "./auth";
@@ -38,15 +38,17 @@ export const getWalletStatistics = query({
     const current = transactions.filter(transaction => transaction.date >= args.start);
     const earlier = transactions.filter(transaction => transaction.date < args.start);
     const days = rangeDays(args);
+    const group = boundedGroup(args, args.group);
     return {
       wallet: { _id: wallet._id, name: wallet.name, currency: wallet.currency, archivedAt: wallet.archivedAt },
       range: { start: args.start, end: args.end },
       days,
+      group,
       current: periodTotals(current, days),
       previous: { ...periodTotals(earlier, days), ...previous },
       firstDate: first?.date ?? null,
       comparisonAvailable: Boolean(first && first.date <= previous.start),
-      trend: buildTrend(current, args, args.group),
+      trend: buildTrend(current, args, group),
       breakdown: {
         income: tagBreakdown(current, tags.map(tag => tag._id), "income"),
         expense: tagBreakdown(current, tags.map(tag => tag._id), "expense"),
