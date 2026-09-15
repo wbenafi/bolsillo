@@ -8,7 +8,7 @@ import { requireAccountContext, requireFeature } from "./auth";
 import { optionalText, requireOwnedWallet, requireText } from "./domain";
 import { transactionFileTypeValidator } from "./schema";
 import { validateAssignedTagIds } from "./tags";
-import { transactionFields, validatedTransactionFields } from "./transactionDomain";
+import { transactionFields, validatedTransactionFields, transactionPreconditions, requireTransactionPreconditions } from "./transactionDomain";
 import {
   MAX_TRANSACTION_FILE_BYTES,
   MAX_TRANSACTION_FILE_DISPLAY_NAME_LENGTH,
@@ -57,7 +57,7 @@ export function validatedOriginalName(name: string, mimeType: TransactionFileTyp
   return normalized;
 }
 
-function validatedDisplayName(name: string | undefined) {
+export function validatedDisplayName(name: string | undefined) {
   return optionalText(name, MAX_TRANSACTION_FILE_DISPLAY_NAME_LENGTH);
 }
 
@@ -165,6 +165,7 @@ export const beginUpload = mutation({
     walletId: v.id("wallets"),
     transactionId: v.optional(v.id("transactions")),
     expectedFileRevision: v.optional(v.number()),
+    ...transactionPreconditions,
     retainedFileIds: v.array(v.id("transactionFiles")),
     files: v.array(fileDescriptorValidator),
   },
@@ -195,6 +196,7 @@ export const beginUpload = mutation({
         validationError("El movimiento no pertenece a este bolsillo.");
       }
       requireFileRevision(transaction, args.expectedFileRevision);
+      requireTransactionPreconditions(transaction, wallet, args);
       const existingFiles = await readyFilesForTransaction(ctx, transaction._id);
       const existingIds = new Set(existingFiles.map(({ _id }) => _id));
       const retainedIds = new Set(args.retainedFileIds);
@@ -230,6 +232,8 @@ export const beginUpload = mutation({
       walletId: args.walletId,
       targetTransactionId: args.transactionId,
       expectedFileRevision: args.transactionId ? args.expectedFileRevision : undefined,
+      expectedRevision: args.expectedRevision,
+      currency: args.currency,
       createdByUserId: user._id,
       status: "pending",
       createdAt: now,
@@ -298,6 +302,7 @@ export const updateTransactionWithFiles = mutation({
     transactionId: v.id("transactions"),
     files: v.array(retainedFileValidator),
     expectedFileRevision: v.number(),
+    ...transactionPreconditions,
     ...transactionFields,
   },
   handler: async (ctx, args) => {
@@ -321,6 +326,7 @@ export const updateTransactionWithFiles = mutation({
       validationError(`Podés adjuntar hasta ${MAX_TRANSACTION_FILES} archivos por movimiento.`);
     }
     requireFileRevision(transaction, args.expectedFileRevision);
+    requireTransactionPreconditions(transaction, wallet, args);
     const currentFiles = await readyFilesForTransaction(ctx, transaction._id);
     const currentById = new Map(currentFiles.map((file) => [file._id, file]));
     const requestedIds = new Set(args.files.map(({ fileId }) => fileId));
@@ -359,6 +365,7 @@ export const updateTransactionWithFiles = mutation({
       ...validatedTransactionFields(args),
       tagIds,
       fileCount: args.files.length,
+      receiptFileIds: transaction.receiptFileIds?.filter(id => requestedIds.has(id)),
       fileRevision: (transaction.fileRevision ?? 0) + 1,
       revision: (transaction.revision ?? 0) + 1,
       updatedAt: Date.now(),
@@ -498,6 +505,7 @@ export const commitUploadBatch = internalMutation({
     if (transaction && transaction.walletId !== batch.walletId) {
       validationError("El movimiento no pertenece a este bolsillo.");
     }
+    if (transaction) requireTransactionPreconditions(transaction, wallet, batch);
     const tagIds = await validateAssignedTagIds(ctx, args.tagIds, batch.walletId, ownerId);
     const now = Date.now();
     const transactionId = transaction
@@ -518,6 +526,7 @@ export const commitUploadBatch = internalMutation({
         tagIds,
         fileCount: retainedIds.size + pendingFiles.length,
         fileRevision: (transaction.fileRevision ?? 0) + 1,
+        receiptFileIds: transaction.receiptFileIds?.filter(id => retainedIds.has(id)),
         revision: (transaction.revision ?? 0) + 1,
         updatedAt: now,
       });

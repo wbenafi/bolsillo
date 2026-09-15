@@ -2,6 +2,13 @@ import { setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 
 test("flujo principal de bolsillo", async ({ page }, testInfo) => {
+  async function reviewAndRegister() {
+    await page.getByRole("button", { name: "Revisar movimiento", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Revisá antes de registrar", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Confirmar y registrar", exact: true }).click();
+    await expect(page.getByRole("link", { name: "Editar movimiento", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Construcción de la casa", exact: true }).click();
+  }
   await setupClerkTestingToken({ page });
   await page.goto("/sign-up");
 
@@ -47,32 +54,43 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await page.getByRole("link", { name: /volver a construcción/i }).click();
 
   await page.getByRole("link", { name: /agregar ingreso/i }).click();
+  await page.getByRole("button", { name: "Completar manualmente", exact: true }).click();
   await page.getByLabel("Monto").fill("5000000.25");
   await page.getByLabel("Descripción").fill("Aporte inicial");
+  await page.locator(".movement-optional > summary").click();
   await page.getByRole("button", { name: "Crear tag" }).click();
   await page.getByLabel("Label").fill("Aporte");
   await page.getByLabel("Verde").click();
   await page.getByRole("dialog").getByRole("button", { name: "Crear tag" }).click();
   await expect(page.getByRole("button", { name: "Aporte", pressed: true })).toBeVisible();
-  await page.getByRole("button", { name: "Guardar movimiento" }).click();
+  await page.getByRole("button", { name: "Continuar después", exact: true }).click();
+  await expect(page.locator(".hero-balance strong")).toHaveText(/₡0/);
+  await page.getByRole("button", { name: "Pendientes", exact: true }).click();
+  await page.getByRole("link", { name: /Aporte inicial/ }).click();
+  await expect(page.getByRole("heading", { name: "Continuar movimiento", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Monto", { exact: true })).toHaveValue("5000000.25");
+  await reviewAndRegister();
   await expect(page.locator(".hero-balance strong")).toHaveText(/₡5.*000.*000,25$/);
 
   await page.getByRole("link", { name: /agregar gasto/i }).click();
+  await page.getByRole("button", { name: "Completar manualmente", exact: true }).click();
   await page.getByLabel("Monto").fill("185000,50");
   await page.getByLabel("Descripción").fill("Compra de cemento");
+  await page.locator(".movement-optional > summary").click();
   await page.getByRole("button", { name: "Materiales de obra" }).click();
   await page.getByRole("button", { name: "Crear tag" }).click();
   await page.getByLabel("Label").fill("Urgente");
   await page.getByLabel("Rosa").click();
   await page.getByRole("dialog").getByRole("button", { name: "Crear tag" }).click();
   await expect(page.getByRole("button", { name: "Urgente", pressed: true })).toBeVisible();
-  await page.getByRole("button", { name: "Guardar movimiento" }).click();
+  await reviewAndRegister();
   await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*814.*999,75$/);
 
   const filters = page.locator(".transaction-filters");
   await filters.getByRole("button", { name: "Materiales de obra" }).click();
-  await expect(page.getByText("Disponible filtrado")).toBeVisible();
-  await expect(page.locator(".hero-balance strong")).toHaveText(/[-−]₡185.*000,50$/);
+  await expect(page.getByText(/Neto de los movimientos filtrados/)).toBeVisible();
+  await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*814.*999,75$/);
+  await expect(page.locator(".movement-filter-total strong")).toHaveText(/[-−]₡185.*000,50$/);
   await expect(page.getByText("1 de 2 registros")).toBeVisible();
   await filters.getByRole("button", { name: "Aporte" }).click();
   await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*814.*999,75$/);
@@ -84,18 +102,33 @@ test("flujo principal de bolsillo", async ({ page }, testInfo) => {
   await expect(page).not.toHaveURL(/\?tag=/);
 
   await page.getByRole("link", { name: /Compra de cemento/ }).click();
+  await page.getByRole("link", { name: "Editar movimiento", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Continuar después", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Monto")).toHaveValue("185000.50");
+  await page.getByLabel("Monto").fill("190000");
+  await expect(page.locator(".movement-save-status")).toHaveText("Cambios sin guardar");
+  await expect(page).not.toHaveURL(/draft=/);
+  await page.getByRole("button", { name: "Cancelar edición", exact: true }).click();
+  await page.getByRole("button", { name: "Seguir editando", exact: true }).click();
+  await expect(page.getByLabel("Monto")).toHaveValue("190000");
+  await page.getByRole("button", { name: "Cancelar edición", exact: true }).click();
+  await page.getByRole("button", { name: "Descartar cambios", exact: true }).click();
+  await expect(page.locator(".movement-detail-amount")).toHaveText(/185.*000,50$/);
+  await page.getByRole("link", { name: "Editar movimiento", exact: true }).click();
   await page.getByLabel("Monto").fill("200000.10");
-  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  await page.getByRole("button", { name: "Revisar movimiento", exact: true }).click();
+  await page.getByRole("button", { name: "Guardar cambios", exact: true }).click();
+  await page.getByRole("link", { name: "Construcción de la casa", exact: true }).click();
   await expect(page.locator(".hero-balance strong")).toHaveText(/₡4.*800.*000,15$/);
   await page.locator(".movements-section").screenshot({
     path: `output/playwright/${testInfo.project.name}-movement-list.png`,
   });
 
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("link", { name: /Aporte inicial/ }).click();
-  await expect(page.getByRole("heading", { name: "Editar movimiento" })).toBeVisible();
-  await page.getByRole("button", { name: "Eliminar movimiento" }).click();
+  await expect(page.getByRole("heading", { name: "Aporte inicial", exact: true })).toBeVisible();
+  await page.getByText("Más acciones", { exact: true }).click();
+  await page.getByRole("button", { name: "Eliminar movimiento", exact: true }).click();
+  await page.getByRole("dialog", { name: "¿Eliminar este movimiento?", exact: true }).getByRole("button", { name: "Eliminar definitivamente", exact: true }).click();
   await expect(page.locator(".hero-balance strong")).toHaveText(/[-−]₡200.*000,10$/);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(4_500);

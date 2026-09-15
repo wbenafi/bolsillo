@@ -4,8 +4,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, internalQuery, internalMutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { requireAccountContext, requireFeature, requireCurrentUser } from "./auth";
 import { requireOwnedWallet } from "./domain";
-import { transactionFileTypeValidator, transactionTypeValidator } from "./schema";
-import { publicFile, queueObjectDeletions, validatedOriginalName, validatedSize } from "./transactionFiles";
+import { currencyValidator, transactionFileTypeValidator, transactionTypeValidator } from "./schema";
+import type { ExtractionResult } from "../lib/transaction-extraction";
+import { parseMoneyInput } from "../lib/money";
+import { publicFile, queueObjectDeletions, validatedDisplayName, validatedOriginalName, validatedSize } from "./transactionFiles";
 import { transactionFields, validatedTransactionFields } from "./transactionDomain";
 import { validateAssignedTagIds } from "./tags";
 
@@ -59,21 +61,19 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const { account, user, ownerId } = await requireAccountContext(ctx);
     await requireFeature(ctx, account._id, "transactions.manage");
-    await requireFeature(ctx, account._id, "transactions.files");
-    await requireFeature(ctx, account._id, "transactions.aiExtract");
+    if (args.transactionId) draftError("Las ediciones no crean borradores. Recargá el movimiento para editarlo y guardar los cambios directamente.");
     const wallet = await requireOwnedWallet(ctx, args.walletId, ownerId, account._id);
-    if (wallet.archivedAt || args.clientKey.length > 100) draftError();
-    const existing = await ctx.db.query("transactionDrafts").withIndex("by_user_key", q => q.eq("userId", user._id).eq("clientKey", args.clientKey)).unique();
-    if (existing && existing.expiresAt > Date.now() && existing.status === "active") return existing._id;
-    const active = await ctx.db.query("transactionDrafts").withIndex("by_user_wallet", q => q.eq("userId", user._id).eq("walletId", args.walletId)).collect();
-    if (active.filter(d => d.status === "active" && d.expiresAt > Date.now()).length >= 20) draftError("Tenés varios borradores pendientes. Retomá o descartá uno antes de continuar.");
-    const transaction = args.transactionId ? await ctx.db.get(args.transactionId) : null;
-    if (args.transactionId && (!transaction || transaction.walletId !== wallet._id || transaction.ownerId !== ownerId)) draftError();
-    if (transaction && ((transaction.revision ?? 0) !== args.expectedRevision || (transaction.fileRevision ?? 0) !== args.expectedFileRevision)) draftError("El movimiento cambió en otra sesión. Volvé a abrirlo antes de editar.");
+    if (wallet.archivedAt || !args.clientKey.trim() || args.clientKey.length > 100) draftError();
+    const existing = await ctx.db.query("transactionDrafts").withIndex("by_user_key", q => q.eq("userId", user._id).eq("clientKey", args.clientKey)).order("desc").first();
+    if (existing && existing.expiresAt > Date.now()) {
+      if (existing.walletId !== args.walletId || existing.transactionId !== args.transactionId || existing.status !== "active") draftError();
+      return existing._id;
+    }
+    const active = await ctx.db.query("transactionDrafts").withIndex("by_user_wallet_status", q => q.eq("userId", user._id).eq("walletId", args.walletId).eq("status", "active")).filter(q => q.gt(q.field("expiresAt"), Date.now())).take(20);
+    if (active.length >= 20) draftError("Tenés varios borradores pendientes. Retomá o descartá uno antes de continuar.");
     validateValues(args.values);
-    const files = transaction ? await ctx.db.query("transactionFiles").withIndex("by_transaction", q => q.eq("transactionId", transaction._id)).collect() : [];
     const now = Date.now();
-    const id = await ctx.db.insert("transactionDrafts", { accountId: account._id, userId: user._id, walletId: wallet._id, transactionId: transaction?._id, baseRevision: transaction?.revision ?? 0, baseFileRevision: transaction?.fileRevision ?? 0, clientKey: args.clientKey, version: 0, mode: args.mode, values: args.values, fileIds: files.map(f => f._id), selectedFileIds: files.map(f => f._id), reviewedFields: [], status: "active", createdAt: now, updatedAt: now, expiresAt: now + DRAFT_TTL });
+    const id = await ctx.db.insert("transactionDrafts", { accountId: account._id, userId: user._id, walletId: wallet._id, baseRevision: 0, baseFileRevision: 0, clientKey: args.clientKey, currency: wallet.currency, version: 0, mode: args.mode, values: args.values, fileIds: [], selectedFileIds: [], reviewedFields: [], status: "active", createdAt: now, updatedAt: now, expiresAt: now + DRAFT_TTL });
     await ctx.scheduler.runAfter(DRAFT_TTL, internal.transactionDrafts.expire, { draftId: id });
     return id;
   },
@@ -82,17 +82,26 @@ function validateValues(values: { amount: string; description: string; date: str
   if (values.amount.length > 30 || values.description.length > 100 || values.date.length > 10 || values.notes.length > 500 || values.tagIds.length > 50) draftError("Revisá los datos del movimiento.");
 }
 export const update = mutation({
-  args: { draftId: v.id("transactionDrafts"), version: v.number(), values: draftValues, mode: modeValidator, fileIds: v.array(v.id("transactionFiles")), selectedFileIds: v.array(v.id("transactionFiles")), reviewedFields: v.array(v.string()) },
+  args: { draftId: v.id("transactionDrafts"), version: v.number(), values: draftValues, mode: modeValidator, fileIds: v.array(v.id("transactionFiles")), selectedFileIds: v.array(v.id("transactionFiles")), fileNames: v.optional(v.array(v.object({ fileId: v.id("transactionFiles"), displayName: v.optional(v.string()) }))), reviewedFields: v.array(v.string()) },
   handler: async (ctx, args) => {
-    const { draft } = await ownedDraft(ctx, args.draftId);
+    const { draft, account } = await ownedDraft(ctx, args.draftId);
     if (draft.version !== args.version) draftError("Este borrador cambió en otra pestaña. Recargá para retomar la versión guardada.");
     validateValues(args.values);
     if (args.reviewedFields.length > 6 || args.reviewedFields.some(f => !["type", "amount", "description", "date", "notes", "tags"].includes(f))) draftError();
-    await checkedDraftFiles(ctx, draft, args.fileIds);
+    const files = await checkedDraftFiles(ctx, draft, args.fileIds);
+    if (args.fileNames && (args.fileNames.length > 5 || new Set(args.fileNames.map(file => file.fileId)).size !== args.fileNames.length || args.fileNames.some(file => !args.fileIds.includes(file.fileId)))) draftError();
+    const fileNames = args.fileNames?.map(file => ({ fileId: file.fileId, displayName: validatedDisplayName(file.displayName) })) ?? draft.fileNames?.filter(file => args.fileIds.includes(file.fileId));
+    const namesChanged = fileNames?.some(file => {
+      const previous = draft.fileNames?.find(item => item.fileId === file.fileId) ?? files.find(item => item._id === file.fileId);
+      return file.displayName !== previous?.displayName;
+    });
     if (new Set(args.selectedFileIds).size !== args.selectedFileIds.length || args.selectedFileIds.some(id => !args.fileIds.includes(id))) draftError();
-    const changed = JSON.stringify(draft.selectedFileIds) !== JSON.stringify(args.selectedFileIds) || JSON.stringify(draft.fileIds) !== JSON.stringify(args.fileIds);
-    if (changed || (args.mode === "manual" && draft.mode !== args.mode)) await cancelDraftAnalysis(ctx, draft);
-    await ctx.db.patch(draft._id, { values: args.values, mode: args.mode, fileIds: args.fileIds, selectedFileIds: args.selectedFileIds, reviewedFields: changed ? [] : args.reviewedFields, extractionId: changed ? undefined : draft.extractionId, version: draft.version + 1, updatedAt: Date.now() });
+    const filesChanged = JSON.stringify(draft.fileIds) !== JSON.stringify(args.fileIds);
+    if (filesChanged || namesChanged) await requireFeature(ctx, account._id, "transactions.files");
+    // Backing documents are independent of the files explicitly selected for AI.
+    const sourceChanged = JSON.stringify(draft.selectedFileIds) !== JSON.stringify(args.selectedFileIds);
+    if (sourceChanged || (args.mode === "manual" && draft.mode !== args.mode)) await cancelDraftAnalysis(ctx, draft);
+    await ctx.db.patch(draft._id, { values: args.values, mode: args.mode, fileIds: args.fileIds, fileNames, selectedFileIds: args.selectedFileIds, reviewedFields: sourceChanged ? [] : args.reviewedFields, extractionId: sourceChanged ? undefined : draft.extractionId, version: draft.version + 1, updatedAt: Date.now() });
     return draft.version + 1;
   },
 });
@@ -102,12 +111,15 @@ export const get = query({ args: { draftId: v.id("transactionDrafts") }, handler
   const { draft } = await ownedDraft(ctx, draftId, true);
   const files = await Promise.all(draft.fileIds.map(id => ctx.db.get(id)));
   const extraction = draft.extractionId ? await ctx.db.get(draft.extractionId) : null;
-  return { ...draft, files: files.filter((f): f is Doc<"transactionFiles"> => !!f).map(publicFile), extraction: extraction ? { _id: extraction._id, fileIds: extraction.fileIds, status: extraction.status, result: extraction.result, errorCode: extraction.errorCode } : null };
+  return { ...draft, files: files.filter((f): f is Doc<"transactionFiles"> => !!f).map(file => {
+    const name = draft.fileNames?.find(item => item.fileId === file._id);
+    return { ...publicFile(file), ...(name ? { displayName: name.displayName } : {}) };
+  }), extraction: extraction ? { _id: extraction._id, fileIds: extraction.fileIds, status: extraction.status, result: extraction.result, errorCode: extraction.errorCode } : null };
 } });
 export const list = query({ args: { walletId: v.id("wallets") }, handler: async (ctx, { walletId }) => {
   const { user, ownerId, account } = await requireAccountContext(ctx);
   await requireOwnedWallet(ctx, walletId, ownerId, account._id);
-  return (await ctx.db.query("transactionDrafts").withIndex("by_user_wallet", q => q.eq("userId", user._id).eq("walletId", walletId)).collect()).filter(d => d.status === "active" && d.expiresAt > Date.now()).map(d => ({ _id: d._id, transactionId: d.transactionId, description: d.values.description, files: d.fileIds.length, expiresAt: d.expiresAt }));
+  return (await ctx.db.query("transactionDrafts").withIndex("by_user_wallet_status", q => q.eq("userId", user._id).eq("walletId", walletId).eq("status", "active")).filter(q => q.gt(q.field("expiresAt"), Date.now())).take(20)).map(d => ({ _id: d._id, transactionId: d.transactionId, type: d.values.type, amount: d.values.amount, description: d.values.description, files: d.fileIds.length, expiresAt: d.expiresAt }));
 } });
 export const beginFiles = mutation({
   args: { draftId: v.id("transactionDrafts"), files: v.array(v.object({ originalName: v.string(), mimeType: transactionFileTypeValidator, sizeBytes: v.number() })) },
@@ -146,26 +158,36 @@ export const fileForRead = internalQuery({ args: { draftId: v.id("transactionDra
   // checkedDraftFiles still requires this draft’s batch or its owned movement.
   return (await checkedDraftFiles(ctx, draft, [fileId]))[0];
 } });
-export const save = mutation({ args: { draftId: v.id("transactionDrafts"), version: v.number(), ...transactionFields }, handler: async (ctx, args) => {
-  const { draft, ownerId, account } = await ownedDraft(ctx, args.draftId, true);
+export const save = mutation({ args: { draftId: v.id("transactionDrafts"), version: v.number(), currency: v.optional(currencyValidator), ...transactionFields }, handler: async (ctx, args) => {
+  const { draft, ownerId, account, wallet } = await ownedDraft(ctx, args.draftId, true);
   if (draft.status === "saved" && draft.savedTransactionId) return draft.savedTransactionId;
   if (draft.version !== args.version) draftError("El borrador cambió. Recargá antes de guardar.");
+  if ((draft.currency && draft.currency !== wallet.currency) || (args.currency && args.currency !== wallet.currency)) draftError("La moneda del bolsillo cambió. Revisá el monto en un nuevo borrador antes de registrar.");
+  const extraction = draft.extractionId ? await ctx.db.get(draft.extractionId) : null;
+  if (extraction && ["queued", "processing"].includes(extraction.status)) draftError("Esperá a que termine la lectura o elegí completar manualmente.");
+  const result = extraction?.status === "ready" ? extraction.result as ExtractionResult | undefined : undefined;
+  if (result && ["ok", "partial"].includes(result.status) && !draft.reviewedFields.includes("amount")) draftError("Revisá el monto del comprobante y confirmalo antes de registrar.");
   const transaction = draft.transactionId ? await ctx.db.get(draft.transactionId) : null;
   if (draft.transactionId && (!transaction || transaction.ownerId !== ownerId || transaction.walletId !== draft.walletId || (transaction.revision ?? 0) !== draft.baseRevision || (transaction.fileRevision ?? 0) !== draft.baseFileRevision)) draftError("El movimiento cambió en otra sesión. Volvé a abrirlo para revisar los cambios.");
   const currentFiles = transaction ? await ctx.db.query("transactionFiles").withIndex("by_transaction", q => q.eq("transactionId", transaction._id)).collect() : [];
-  if (draft.fileIds.length || currentFiles.length) await requireFeature(ctx, account._id, "transactions.files");
+  const filesChanged = draft.fileIds.length !== currentFiles.length || draft.fileIds.some(id => !currentFiles.some(f => f._id === id));
+  const namesChanged = draft.fileNames?.some(file => file.displayName !== currentFiles.find(current => current._id === file.fileId)?.displayName);
+  if (filesChanged || namesChanged) await requireFeature(ctx, account._id, "transactions.files");
   const files = await checkedDraftFiles(ctx, draft);
   const tagIds = await validateAssignedTagIds(ctx, args.tagIds, draft.walletId, ownerId);
   const fields = validatedTransactionFields(args);
+  if (fields.type !== draft.values.type || fields.amountMinor !== parseMoneyInput(draft.values.amount, wallet.currency) || fields.description !== draft.values.description.trim() || fields.date !== draft.values.date || (fields.notes ?? "") !== draft.values.notes.trim() || JSON.stringify(args.tagIds ?? []) !== JSON.stringify(draft.values.tagIds)) draftError("Los datos cambiaron desde la revisión. Guardá el borrador y revisalos antes de registrar.");
   const now = Date.now();
-  const data = { ...fields, tagIds, fileCount: files.length, fileRevision: (transaction?.fileRevision ?? 0) + 1, revision: (transaction?.revision ?? 0) + 1, updatedAt: now };
+  const receiptFileIds = [...new Set([...(transaction?.receiptFileIds ?? []), ...(result ? extraction!.fileIds : [])])].filter(id => draft.fileIds.includes(id));
+  const data = { ...fields, tagIds, receiptFileIds, fileCount: files.length, fileRevision: (transaction?.fileRevision ?? 0) + 1, revision: (transaction?.revision ?? 0) + 1, updatedAt: now };
   const transactionId = transaction?._id ?? await ctx.db.insert("transactions", { ownerId, walletId: draft.walletId, ...data, createdAt: now });
   if (transaction) await ctx.db.patch(transactionId, data);
   const removed = currentFiles.filter(f => !draft.fileIds.includes(f._id));
   await queueObjectDeletions(ctx, account._id, removed.map(f => f.objectKey), "draft_file_removed");
   for (const file of removed) await ctx.db.delete(file._id);
   for (const [order, file] of files.entries()) {
-    await ctx.db.patch(file._id, { transactionId, status: "ready", order, expiresAt: undefined, updatedAt: now });
+    const name = draft.fileNames?.find(item => item.fileId === file._id);
+    await ctx.db.patch(file._id, { transactionId, status: "ready", order, ...(name ? { displayName: name.displayName } : {}), expiresAt: undefined, updatedAt: now });
     if (file.status === "pending") await ctx.db.patch(file.uploadBatchId, { status: "committed", committedTransactionId: transactionId, updatedAt: now });
   }
   // A batch can contain files removed from the draft before saving. Delete those

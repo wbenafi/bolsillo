@@ -14,7 +14,7 @@ import { renderReport } from './report.mjs';
 const env = localEnvironment();
 for (const key of ['CLERK_SECRET_KEY', 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY']) process.env[key] = env[key];
 process.env.CLERK_PUBLISHABLE_KEY = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-const baseURL = 'http://localhost:3000';
+const baseURL = process.env.QA_BASE_URL ?? 'http://localhost:3000';
 const runId = new Date().toISOString().replaceAll(':', '-').replace(/\..+/, '');
 const root = path.resolve('output/transaction-files-qa');
 const out = path.join(root, runId);
@@ -154,15 +154,46 @@ const list = (walletId) => run('transactions:listTransactionsByWallet', { wallet
 async function form(page, walletId, description, amount = '18500') {
   await goto(page, `/wallets/${walletId}`);
   await page.getByRole('link', { name: /agregar gasto/i }).click();
+  await page.getByRole('button', { name: 'Completar manualmente', exact: true }).click();
   await page.getByLabel('Monto', { exact: true }).fill(amount);
   await page.getByLabel('Descripción', { exact: true }).fill(description);
 }
-async function attach(page, names) { await page.locator('input[type=file]').setInputFiles(names.map(name => fixtures[name])); }
-async function save(page, walletId, edit = false) {
-  await page.getByRole('button', { name: edit ? 'Guardar cambios' : 'Guardar movimiento', exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/wallets/${walletId}$`), { timeout: 30000 });
+async function attach(page, names) {
+  await page.locator('.movement-attachments input[type=file]').setInputFiles(names.map(name => fixtures[name]));
+  await expect(page.locator('.movement-flow form')).toHaveAttribute('aria-busy', 'false', { timeout: 30000 });
 }
-async function edit(page, walletId, description) { await goto(page, `/wallets/${walletId}`); await page.getByRole('link', { name: new RegExp(description) }).click(); await expect(page.getByRole('heading', { name: 'Editar movimiento' })).toBeVisible(); }
+async function save(page, walletId, edit = false) {
+  await page.getByRole('button', { name: 'Revisar movimiento', exact: true }).click();
+  await page.getByRole('button', { name: edit ? 'Guardar cambios' : 'Confirmar y registrar', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/wallets/${walletId}/transactions/[a-z0-9]+$`), { timeout: 30000 });
+  await page.locator(`a[href="/wallets/${walletId}"]`).click();
+  await expect(page).toHaveURL(new RegExp(`/wallets/${walletId}$`));
+}
+async function detail(page, walletId, description) {
+  await goto(page, `/wallets/${walletId}`);
+  await page.getByRole('link', { name: new RegExp(description) }).click();
+  await expect(page.locator('.movement-detail-amount')).toBeVisible();
+}
+async function edit(page, walletId, description) {
+  await detail(page, walletId, description);
+  await page.getByRole('link', { name: 'Editar movimiento', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Editar movimiento', exact: true })).toBeVisible();
+}
+async function rename(page, currentName, newName) {
+  await page.getByRole('button', { name: `Renombrar ${currentName}`, exact: true }).click();
+  await page.getByLabel('Nombre del archivo', { exact: true }).fill(newName);
+  await page.getByRole('button', { name: 'Guardar nombre', exact: true }).click();
+}
+async function discardDraft(page) {
+  await page.getByRole('button', { name: 'Descartar borrador', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Descartar borrador', exact: true }).click();
+  await expect(page.locator('.movement-flow')).toHaveCount(0);
+}
+async function cancelEdit(page) {
+  await page.getByRole('button', { name: 'Cancelar edición', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Descartar cambios', exact: true }).click();
+  await expect(page.locator('.movement-detail-amount')).toBeVisible();
+}
 async function preview(page, title) {
   await page.getByRole('button', { name: `Ver ${title}`, exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -186,14 +217,14 @@ await scenario('01-carga-formatos', 'Carga de los cinco formatos', 'Crear un gas
   await form(page, id, 'Materiales con cinco comprobantes');
   await step(page, r, 'Adjuntar JPG, PNG, WebP, PDF y TXT');
   await attach(page, ['comprobante.jpg', 'comprobante.png', 'comprobante.webp', 'factura.pdf', 'detalle.txt']);
-  await expect(page.locator('.transaction-file-list article')).toHaveCount(5);
+  await expect(page.locator('.movement-attachment-list > li')).toHaveCount(5);
   await step(page, r, 'El formulario muestra cinco adjuntos y permite una vista previa antes de guardar');
   await preview(page, 'comprobante.png'); await shot(page, r, 'preview-local'); await closePreview(page);
   await save(page, id);
   await step(page, r, 'El movimiento se guardó: el listado indica cinco archivos');
   assert.equal(list(id)[0].fileCount, 5);
   await edit(page, id, 'Materiales con cinco comprobantes'); await page.reload();
-  await expect(page.locator('.transaction-file-list article')).toHaveCount(5);
+  await expect(page.locator('.movement-attachment-list > li')).toHaveCount(5);
   await step(page, r, 'Después de recargar, los cinco archivos siguen guardados');
   r.checks.push('Cinco archivos persistidos en Convex y MinIO.', 'Movimiento creado una sola vez.', 'Saldo actualizado por CRC 18 500.', 'Miniaturas y adjuntos recuperados después de recargar.');
   assert.equal(run('wallets:getWallet', { walletId: id }).balance, -1850000);
@@ -217,66 +248,73 @@ await scenario('02-vistas-descargas', 'Vistas previas y descargas', 'Abrir los c
   }
 });
 
-await scenario('03-edicion-cancelacion', 'Editar, reemplazar y cancelar', 'Renombrar un archivo, quitar otro, agregar uno nuevo por arrastre y comprobar que Cancelar conserva lo guardado.', async (page, r) => {
+await scenario('03-edicion-cancelacion', 'Editar, reemplazar y cancelar', 'Renombrar un archivo, quitar otro, agregar uno nuevo y comprobar que cancelar la edición conserva lo registrado.', async (page, r) => {
   const id = wallet('Edición'); await form(page, id, 'Edición de comprobantes'); await attach(page, ['comprobante.png','detalle.txt']); await save(page, id);
   await edit(page, id, 'Edición de comprobantes');
   await step(page, r, 'Renombrar imagen y quitar el TXT original');
-  await page.getByPlaceholder('comprobante.png', { exact: true }).fill('Factura de materiales');
+  await rename(page, 'comprobante.png', 'Factura de materiales');
   const oldFiles = run('transactionFiles:listByTransaction', { transactionId: list(id)[0]._id });
   const oldText = oldFiles.find(f => f.originalName === 'detalle.txt');
   await page.getByRole('button', { name: 'Quitar detalle.txt', exact: true }).click();
-  const text = await readFile(fixtures['adicional.txt'], 'utf8');
-  const dt = await page.evaluateHandle(text => { const dt = new DataTransfer(); dt.items.add(new File([text], 'adicional.txt', { type:'text/plain' })); return dt; }, text);
-  await step(page, r, 'Arrastrar una nota nueva al área de archivos'); await page.locator('.file-dropzone').dispatchEvent('drop', { dataTransfer: dt }); await dt.dispose();
+  await step(page, r, 'Agregar una nota nueva al movimiento'); await attach(page, ['adicional.txt']);
   await save(page, id, true); await edit(page, id, 'Edición de comprobantes');
-  await expect(page.getByPlaceholder('comprobante.png', { exact:true })).toHaveValue('Factura de materiales');
-  await expect(page.locator('.transaction-file-list article')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Ver Factura de materiales', exact: true })).toBeVisible();
+  await expect(page.locator('.movement-attachment-list > li')).toHaveCount(2);
   await waitDeleted(keysFor([oldText]));
   await preview(page, 'Factura de materiales');
   const pending=page.waitForEvent('download'); await page.getByRole('button',{name:'Descargar',exact:true}).click(); const download=await pending; assert.equal(download.suggestedFilename(),'Factura de materiales.png'); await download.saveAs(path.join(out,'downloads',download.suggestedFilename())); await closePreview(page);
   await step(page, r, 'Quitar la imagen y cambiar la nota, pero cancelar la edición');
-  await page.getByRole('button',{name:'Quitar Factura de materiales',exact:true}).click(); await page.getByPlaceholder('adicional.txt',{exact:true}).fill('Cambio que no se guardará'); await page.getByRole('button',{name:'Cancelar',exact:true}).click();
-  await edit(page,id,'Edición de comprobantes'); await expect(page.locator('.transaction-file-list article')).toHaveCount(2); await expect(page.getByPlaceholder('adicional.txt',{exact:true})).toHaveValue('');
-  await step(page,r,'Cancelar conservó la imagen y el nombre anterior de la nota');
-  r.checks.push('Renombre persistido y extensión .png conservada al descargar.', 'Archivo reemplazado eliminado físicamente.', 'Arrastre aceptado y orden persistido.', 'Cancelar no modifica los adjuntos guardados.');
+  await page.getByRole('button',{name:'Quitar Factura de materiales',exact:true}).click(); await rename(page, 'adicional.txt', 'Cambio que no se guardará'); await cancelEdit(page);
+  await edit(page,id,'Edición de comprobantes'); await expect(page.locator('.movement-attachment-list > li')).toHaveCount(2); await expect(page.getByRole('button', { name: 'Ver adicional.txt', exact: true })).toBeVisible();
+  await step(page,r,'Cancelar la edición conservó la imagen y el nombre anterior de la nota');
+  r.checks.push('Renombre persistido y extensión .png conservada al descargar.', 'Archivo reemplazado eliminado físicamente.', 'Nuevo archivo y orden persistidos.', 'Cancelar la edición no modifica los adjuntos registrados ni crea borradores.');
 });
 
 await scenario('04-validaciones', 'Límites y archivos no permitidos', 'Rechazar archivos vacíos, mayores de 2 MB, extensiones no admitidas y un sexto adjunto.', async (page,r) => {
   const id=wallet('Validaciones'); await form(page,id,'Límites de archivos');
-  for (const [name, message] of [['no-permitido.exe','usá JPG'],['vacio.txt','2 MB o menos'],['demasiado-grande.txt','2 MB o menos']]) {
-    await step(page,r,`Intentar adjuntar ${name}`); await attach(page,[name]); await expect(page.locator('[data-sonner-toast]').filter({hasText:message}).last()).toBeVisible(); await expect(page.locator('.transaction-file-list article')).toHaveCount(0); await shot(page,r,name.split('.')[0]);
+  for (const [name, message] of [['no-permitido.exe','elegí JPG'],['vacio.txt','hasta 2 MB'],['demasiado-grande.txt','hasta 2 MB']]) {
+    await step(page,r,`Intentar adjuntar ${name}`); await attach(page,[name]);
+    await expect(page.locator('.movement-error')).toContainText(message);
+    await expect(page.locator('.movement-attachment-list > li')).toHaveCount(0); await shot(page,r,name.split('.')[0]);
+    await page.getByRole('button',{name:'Seguir sin estos archivos',exact:true}).click();
   }
-  await step(page,r,'Seleccionar seis archivos: se aceptan cinco y se informa el límite');
+  await step(page,r,'Seleccionar seis archivos: se rechaza el lote completo y se informa el límite');
   await attach(page,['comprobante.jpg','comprobante.png','comprobante.webp','factura.pdf','detalle.txt','adicional.txt']);
-  await expect(page.locator('.transaction-file-list article')).toHaveCount(5); await expect(page.locator('input[type=file]')).toBeDisabled();
-  await expect(page.locator('[data-sonner-toast]').filter({hasText:'Solo quedan 5'})).toBeVisible();
+  await expect(page.locator('.movement-attachment-list > li')).toHaveCount(0);
+  await expect(page.locator('.movement-error')).toContainText('hasta 5 archivos');
+  await page.getByRole('button',{name:'Seguir sin estos archivos',exact:true}).click();
+  await attach(page,['comprobante.jpg','comprobante.png','comprobante.webp','factura.pdf','detalle.txt']);
+  await expect(page.locator('.movement-attachment-list > li')).toHaveCount(5);
+  await expect(page.locator('.movement-attachments input[type=file]')).toBeDisabled();
   assert.equal(list(id).length,0); await shot(page,r,'limite-cinco');
-  await page.getByRole('button',{name:'Cancelar',exact:true}).click(); assert.equal(list(id).length,0);
-  r.checks.push('EXE, TXT vacío y TXT de 2 MB + 1 byte rechazados.', 'Solo cinco adjuntos aceptados.', 'El selector se deshabilita al alcanzar el máximo.', 'Cancelar no crea movimientos ni sube objetos.');
+  await discardDraft(page); assert.equal(list(id).length,0);
+  r.checks.push('EXE, TXT vacío y TXT de 2 MB + 1 byte rechazados.', 'Un lote de seis archivos se rechaza sin una carga parcial.', 'El selector se deshabilita al alcanzar el máximo.', 'Descartar no registra un movimiento.');
 });
 
 await scenario('05-contenido-falso', 'Validación del contenido real', 'Un archivo llamado .png cuyo contenido es texto llega a R2 pero Convex impide guardar el movimiento y limpia la carga.', async(page,r)=>{
   const id=wallet('Contenido'); await form(page,id,'Comprobante inválido'); await attach(page,['imagen-falsa.png']);
-  await step(page,r,'Intentar guardar un texto disfrazado de PNG');
-  await page.getByRole('button',{name:'Guardar movimiento',exact:true}).click();
-  await expect(page.locator('[data-sonner-toast]').filter({hasText:'no coincide'})).toBeVisible({timeout:30000});
-  assert.equal(list(id).length,0); await expect(page.getByText('No se pudo subir',{exact:true})).toBeVisible(); await shot(page,r,'rechazo');
+  await step(page,r,'La verificación rechaza el texto disfrazado de PNG antes de confirmar');
+  await expect(page.locator('.movement-error')).toContainText(/no coincide|archivo|contenido/i,{timeout:30000});
+  assert.equal(list(id).length,0); await expect(page.getByRole('button',{name:'Reintentar carga',exact:true})).toBeVisible(); await shot(page,r,'rechazo');
   r.expectedErrors.push('Error de validación intencional: el contenido no coincide con PNG.');
-  await step(page,r,'Quitar el archivo inválido y guardar un PNG real');
-  await page.getByRole('button',{name:'Quitar imagen-falsa.png',exact:true}).click(); await attach(page,['comprobante.png']); await save(page,id);
+  await step(page,r,'Descartar la carga fallida y adjuntar un PNG real');
+  await page.getByRole('button',{name:'Seguir sin estos archivos',exact:true}).click(); await attach(page,['comprobante.png']); await save(page,id);
   assert.equal(list(id).length,1); r.checks.push('Convex rechaza la firma de contenido inválida.', 'No se crea un movimiento parcial.', 'La corrección permite guardar una sola vez.');
 });
 
 await scenario('06-fallo-reintento', 'Fallo de carga y reintento', 'Interrumpir una de dos cargas; conservar el formulario y reintentar sin duplicar el movimiento.',async(page,r)=>{
-  const id=wallet('Reintento'); await form(page,id,'Carga recuperada'); await attach(page,['detalle.txt','comprobante.png']);
+  const id=wallet('Reintento'); await form(page,id,'Carga recuperada');
   let failed=false;
-  await page.route('http://127.0.0.1:9000/**',async route=>{if(route.request().method()==='PUT'&&!failed){failed=true;await route.abort('failed');}else await route.continue();});
+  const failUpload=async route=>{if(route.request().method()==='PUT'&&route.request().url().includes('/transaction-files/')&&!failed){failed=true;await route.abort('failed');}else await route.continue();};
+  await page.route('**/*',failUpload);
   await step(page,r,'Simular un fallo de red en una de las dos cargas');
-  await page.getByRole('button',{name:'Guardar movimiento',exact:true}).click();
-  await expect(page.getByText('No se pudo subir',{exact:true})).toHaveCount(2,{timeout:30000}); assert.equal(list(id).length,0);
+  await attach(page,['detalle.txt','comprobante.png']);
+  await expect(page.getByRole('button',{name:'Reintentar carga',exact:true})).toBeVisible({timeout:30000}); assert.equal(list(id).length,0);
   await expect(page.getByLabel('Descripción',{exact:true})).toHaveValue('Carga recuperada'); await shot(page,r,'fallo');
-  await page.unroute('http://127.0.0.1:9000/**');
-  await step(page,r,'Reintentar con la red disponible'); await save(page,id);
+  await page.unroute('**/*',failUpload);
+  await step(page,r,'Reintentar con la red disponible');
+  await page.getByRole('button',{name:'Reintentar carga',exact:true}).click();
+  await expect(page.locator('.movement-attachment-list > li')).toHaveCount(2,{timeout:30000}); await save(page,id);
   assert.equal(list(id).length,1); assert.equal(list(id)[0].fileCount,2); await edit(page,id,'Carga recuperada');
   r.expectedErrors.push('Un PUT se abortó deliberadamente para simular una caída de red.');
   r.checks.push('Fallo parcial no cambia saldo ni crea movimiento.', 'Formulario y archivos conservados para reintentar.', 'Reintento crea un único movimiento con dos archivos.');
@@ -288,11 +326,11 @@ await scenario('07-permisos', 'Deshabilitar y restaurar el feature', 'Cambiar el
   try {
     await goto(page, `/superadmin/accounts/${account.accountId}`); await step(page,r,'Deshabilitar Archivos en movimientos desde Superadmin');
     await page.getByRole('button',{name:'Deshabilitar Archivos en movimientos',exact:true}).click(); await expect(page.getByRole('button',{name:'Habilitar Archivos en movimientos',exact:true})).toBeVisible();
-    await edit(page,id,'Comprobante con permisos'); await expect(page.locator('.transaction-files-field')).toHaveCount(0);
+    await edit(page,id,'Comprobante con permisos'); await expect(page.locator('.movement-attachments')).toHaveCount(0);
     assert.throws(()=>run('r2:createReadUrl',{fileId:files[0]._id}),/no está habilitada/);
     await step(page,r,'Los adjuntos están ocultos y las nuevas lecturas están bloqueadas'); await shot(page,r,'deshabilitado');
     await goto(page, `/superadmin/accounts/${account.accountId}`); await page.getByRole('button',{name:'Habilitar Archivos en movimientos',exact:true}).click(); await expect(page.getByRole('button',{name:'Deshabilitar Archivos en movimientos',exact:true})).toBeVisible();
-    await edit(page,id,'Comprobante con permisos'); await expect(page.locator('.transaction-file-list article')).toHaveCount(1); await preview(page,'detalle.txt');
+    await edit(page,id,'Comprobante con permisos'); await expect(page.locator('.movement-attachment-list > li')).toHaveCount(1); await preview(page,'detalle.txt');
     await step(page,r,'Al restaurar el permiso, el archivo original vuelve a estar disponible');
     r.checks.push('Cambio administrativo aplicado en UI y backend.', 'Deshabilitar preserva el archivo.', 'Rehabilitar recupera la vista previa sin volver a cargarlo.');
   } finally {run('superadmin:setFeatureOverride',{accountId:account.accountId,featureKey:'transactions.files',enabled:true});}
@@ -300,9 +338,16 @@ await scenario('07-permisos', 'Deshabilitar y restaurar el feature', 'Cambiar el
 
 await scenario('08-eliminar-movimiento','Eliminar un movimiento con archivos','Cancelar primero la confirmación; después eliminar y verificar que desaparecen el movimiento y sus objetos de MinIO.',async(page,r)=>{
   const id=wallet('Eliminación'); await form(page,id,'Movimiento para eliminar'); await attach(page,['detalle.txt','comprobante.png']); await save(page,id); const tx=list(id)[0]; const files=run('transactionFiles:listByTransaction',{transactionId:tx._id});
-  await edit(page,id,'Movimiento para eliminar');
-  await step(page,r,'Cancelar la confirmación de eliminación'); page.once('dialog',async dialog=>{assert.match(dialog.message(),/archivos/);await dialog.dismiss();}); await page.getByRole('button',{name:'Eliminar movimiento',exact:true}).click(); assert.equal(list(id).length,1);
-  await step(page,r,'Confirmar la eliminación del movimiento y sus archivos'); page.once('dialog',async dialog=>{await delay(800);await dialog.accept();}); await page.getByRole('button',{name:'Eliminar movimiento',exact:true}).click(); await expect(page).toHaveURL(new RegExp(`/wallets/${id}$`));
+  await detail(page,id,'Movimiento para eliminar');
+  await page.getByText('Más acciones',{exact:true}).click();
+  await step(page,r,'Cancelar la confirmación de eliminación');
+  await page.getByRole('button',{name:'Eliminar movimiento',exact:true}).click();
+  await expect(page.getByRole('dialog')).toContainText('archivos');
+  await page.getByRole('button',{name:'Conservar y volver',exact:true}).click(); assert.equal(list(id).length,1);
+  await step(page,r,'Confirmar la eliminación del movimiento y sus archivos');
+  await page.getByRole('button',{name:'Eliminar movimiento',exact:true}).click();
+  await page.getByRole('button',{name:'Eliminar definitivamente',exact:true}).click();
+  await expect(page).toHaveURL(new RegExp(`/wallets/${id}$`));
   assert.equal(list(id).length,0); assert.equal(run('wallets:getWallet',{walletId:id}).balance,0); await waitDeleted(keysFor(files));
   await step(page,r,'Movimiento eliminado, saldo en cero y archivos borrados físicamente');
   r.checks.push('La confirmación menciona los archivos.', 'Cancelar conserva movimiento y archivos.', 'Confirmar elimina ambos objetos de MinIO.', 'Saldo recalculado a cero.');
@@ -313,7 +358,7 @@ await scenario('09-movil','Flujo de adjuntos en móvil','Crear un gasto, abrir u
   await preview(page,'comprobante.png'); await shot(page,r,'imagen'); await closePreview(page);
   await step(page,r,'Leer y descargar la nota'); await preview(page,'detalle.txt'); await expect(page.locator('.file-viewer-content pre')).toContainText('Compra de materiales');
   const pending=page.waitForEvent('download'); await page.getByRole('button',{name:'Descargar',exact:true}).click(); const dl=await pending; assert.equal(dl.suggestedFilename(),'detalle.txt'); await closePreview(page);
-  await page.getByRole('button',{name:'Quitar detalle.txt',exact:true}).click(); await save(page,id,true); await edit(page,id,'Comprobante desde móvil'); await expect(page.locator('.transaction-file-list article')).toHaveCount(1);
+  await page.getByRole('button',{name:'Quitar detalle.txt',exact:true}).click(); await save(page,id,true); await edit(page,id,'Comprobante desde móvil'); await expect(page.locator('.movement-attachment-list > li')).toHaveCount(1);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'No debe haber desbordamiento horizontal');
   await step(page,r,'Cambios guardados; queda una imagen y el diseño cabe en la pantalla');
   r.checks.push('Carga y persistencia en viewport móvil.', 'Visor de imagen y TXT utilizable.', 'Descarga con nombre original.', 'Eliminar adjunto guarda correctamente.', 'Sin desbordamiento horizontal.');
@@ -335,52 +380,125 @@ await scenario('10-bolsillo-archivado','Archivar, restaurar y eliminar un bolsil
   page.once('dialog',async d=>{assert.match(d.message(),/archivos/);await delay(800);await d.accept();});await card.getByRole('button',{name:`Eliminar ${name}`,exact:true}).click();await expect(card).toHaveCount(0);await waitDeleted(keysFor(files));
   r.checks.push('Archivar preserva el adjunto.', 'Restaurar permite volver a visualizarlo.', 'Eliminar el bolsillo borra físicamente el archivo.', 'La confirmación advierte sobre los adjuntos.');
 });
-await scenario('11-edicion-concurrente', 'Edición desde dos pestañas', 'Conservar adjuntos agregados en otra pestaña y rechazar cambios de archivos basados en una versión anterior.', async (page, r) => {
+await scenario('11-edicion-concurrente', 'Edición sin borradores desde dos pestañas', 'Rechazar cambios basados en una versión anterior y conservar todos los cambios de edición en memoria hasta confirmar.', async (page, r) => {
   const id = wallet('Concurrencia');
-  await form(page, id, 'Movimiento concurrente');
-  await attach(page, ['detalle.txt']);
-  await save(page, id);
-  const tx = list(id)[0];
-  await edit(page, id, 'Movimiento concurrente');
+  await form(page, id, 'Movimiento concurrente'); await attach(page, ['detalle.txt']); await save(page, id);
+  const tx = list(id)[0]; await edit(page, id, 'Movimiento concurrente');
   const other = await page.context().newPage();
+  const noDrafts = () => assert.equal(run('transactionDrafts:list', { walletId: id }).length, 0);
   try {
-    await edit(other, id, 'Movimiento concurrente');
-    await attach(other, ['comprobante.png']);
-    await save(other, id, true);
-    await page.waitForTimeout(1000); // Let the first tab receive the reactive update.
-    await step(page, r, 'Otra pestaña agregó una imagen; guardar solo la descripción conserva ambos archivos');
-    await page.getByLabel('Descripción', { exact: true }).fill('Descripción actualizada');
-    await save(page, id, true);
-    assert.equal(run('transactionFiles:listByTransaction', { transactionId: tx._id }).length, 2);
-
-    await edit(page, id, 'Descripción actualizada');
-    await edit(other, id, 'Descripción actualizada');
-    await other.getByPlaceholder('detalle.txt', { exact: true }).fill('Nota renombrada');
-    await save(other, id, true);
-    await page.waitForTimeout(1000);
-    await step(page, r, 'La otra pestaña renombró el TXT; se rechaza eliminarlo desde la versión anterior');
-    await page.getByRole('button', { name: 'Quitar detalle.txt', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Continuar después', exact: true })).toHaveCount(0);
+    await edit(other, id, 'Movimiento concurrente'); await attach(other, ['comprobante.png']); noDrafts(); await save(other, id, true);
+    await step(page, r, 'Otra pestaña agregó una imagen; se rechaza sobrescribir el movimiento con una versión anterior');
+    await page.getByLabel('Descripción', { exact: true }).fill('Cambio desactualizado');
+    await page.getByRole('button', { name: 'Revisar movimiento', exact: true }).click();
     await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'Notifications alt+T' }).getByText('Los archivos cambiaron en otra pestaña o sesión.', { exact: false })).toBeVisible();
-    await shot(page, r, 'conflicto');
+    await expect(page.locator('.movement-error')).toContainText('otra sesión'); noDrafts();
+    assert.equal(list(id)[0].description, 'Movimiento concurrente');
     assert.equal(run('transactionFiles:listByTransaction', { transactionId: tx._id }).length, 2);
-    await attach(page, ['adicional.txt']);
-    await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Guardar cambios', exact: true })).toBeEnabled();
-    assert.equal(run('transactionFiles:listByTransaction', { transactionId: tx._id }).length, 2);
+    await cancelEdit(page);
 
-    await page.reload();
-    await expect(page.getByPlaceholder('detalle.txt', { exact: true })).toHaveValue('Nota renombrada');
-    await step(page, r, 'Volver a abrir el movimiento permite eliminar intencionalmente desde la versión actual');
-    await page.getByRole('button', { name: 'Quitar Nota renombrada', exact: true }).click();
-    await save(page, id, true);
-    const remaining = run('transactionFiles:listByTransaction', { transactionId: tx._id });
-    assert.deepEqual(remaining.map(file => file.originalName), ['comprobante.png']);
-    r.checks.push('Guardar otros campos conserva adjuntos externos.', 'Un renombre externo invalida la edición anterior.', 'No se pierden archivos al rechazar un guardado o carga.', 'Reabrir permite guardar la eliminación intencional.');
+    await edit(page, id, 'Movimiento concurrente'); await rename(page, 'detalle.txt', 'Primera revisión');
+    await expect(page.locator('.movement-save-status')).toHaveText('Cambios sin guardar');
+    noDrafts(); assert.equal(run('transactionFiles:listByTransaction', { transactionId: tx._id })[0].displayName, undefined);
+    await edit(other, id, 'Movimiento concurrente'); await rename(other, 'detalle.txt', 'Nota renombrada'); await save(other, id, true);
+    await step(page, r, 'Los renombres no crean borradores; una eliminación basada en archivos anteriores se rechaza');
+    await page.getByRole('button', { name: 'Quitar Primera revisión', exact: true }).click();
+    await page.getByRole('button', { name: 'Revisar movimiento', exact: true }).click();
+    await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+    await expect(page.locator('.movement-error')).toContainText('otra pestaña'); noDrafts(); await shot(page, r, 'conflicto');
+    await cancelEdit(page); await edit(page, id, 'Movimiento concurrente');
+    await expect(page.getByRole('button', { name: 'Ver Nota renombrada', exact: true })).toBeVisible();
+    await step(page, r, 'Reabrir recupera el movimiento registrado y permite confirmar la eliminación intencional');
+    await page.getByRole('button', { name: 'Quitar Nota renombrada', exact: true }).click(); await save(page, id, true); noDrafts();
+    assert.deepEqual(run('transactionFiles:listByTransaction', { transactionId: tx._id }).map(file => file.originalName), ['comprobante.png']);
+    r.checks.push('Abrir, modificar, adjuntar y confirmar una edición no crea borradores.', 'Los cambios quedan locales hasta confirmar.', 'Las revisiones evitan sobrescribir datos y archivos de otra sesión.', 'Cancelar conserva el movimiento registrado.');
   } finally { await other.close(); }
 });
 
 report.findings.push({title:'Corregido: adjuntos huérfanos al eliminar un bolsillo',detail:'La eliminación definitiva de un bolsillo archivado borraba movimientos pero conservaba los archivos. Se agregó limpieza en cascada, se actualizó la confirmación y se añadió una prueba de regresión. El escenario 10 verifica el resultado contra MinIO.'});
+
+await scenario('12-recuperacion-edicion', 'Recuperar una edición local interrumpida', 'Conservar cambios ante archivado o permisos, renovar cargas eliminadas y cancelar sin conexión.', async (page, r) => {
+  let fault, offline = false;
+  const lostResponses = new Set(), sockets = [];
+  await page.context().routeWebSocket(/\/api\/[^/]+\/sync(?:\?|$)/, ws => {
+    if (offline) { ws.close(); return; }
+    const server = ws.connectToServer(); sockets.push(ws);
+    ws.onMessage(message => {
+      const request = JSON.parse(String(message));
+      if (request.type === 'Action' && request.udfPath === 'r2:finalizeUpload') {
+        const nextFault = fault; fault = undefined;
+        if (nextFault === 'missing') run('transactionFiles:abortUpload', { batchId: request.args[0].batchId });
+        if (nextFault === 'lost-result') lostResponses.add(request.requestId);
+        if (nextFault === 'expired') {
+          ws.send(JSON.stringify({ type: 'ActionResponse', requestId: request.requestId, success: false, result: 'La carga venció. Intentá de nuevo.', errorData: { code: 'UPLOAD_EXPIRED', message: 'La carga venció. Intentá de nuevo.' }, logLines: [] }));
+          return;
+        }
+        if (nextFault === 'interrupted') {
+          ws.send(JSON.stringify({ type: 'ActionResponse', requestId: request.requestId, success: false, result: 'Interrupción de prueba antes de confirmar.', logLines: [] }));
+          return;
+        }
+      }
+      server.send(message);
+    });
+    server.onMessage(message => {
+      const response = JSON.parse(String(message));
+      if (response.type === 'ActionResponse' && lostResponses.delete(response.requestId)) {
+        assert.equal(response.success, true);
+        ws.send(JSON.stringify({ type: 'ActionResponse', requestId: response.requestId, success: false, result: 'Respuesta de confirmación perdida en la prueba.', logLines: [] }));
+      } else ws.send(message);
+    });
+  });
+  const id = wallet('Recuperación de edición'); await form(page, id, 'Edición recuperable'); await attach(page, ['detalle.txt']); await save(page, id);
+  const tx = list(id)[0]; const noDrafts = () => assert.equal(run('transactionDrafts:list', { walletId: id }).length, 0);
+  const captureAvailability = async name => {
+    if (!process.env.QA_REVIEW_DIR) return;
+    for (const [suffix, viewport] of [['mobile', { width: 390, height: 844 }], ['desktop', { width: 1440, height: 1100 }]]) {
+      await page.setViewportSize(viewport); await page.evaluate(async () => { await document.fonts.ready; window.scrollTo(0, 0); });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.screenshot({ path: path.join(process.env.QA_REVIEW_DIR, name + '-' + suffix + '.png'), fullPage: true });
+    }
+  };
+  const confirm = async () => { await page.getByRole('button', { name: 'Revisar movimiento', exact: true }).click(); await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click(); };
+  try {
+    await edit(page, id, 'Edición recuperable'); await page.getByLabel('Monto', { exact: true }).fill('19000'); await attach(page, ['adicional.txt']);
+    run('wallets:archiveWallet', { walletId: id });
+    await expect(page.locator('.movement-error')).toContainText('se archivó'); await expect(page.getByLabel('Monto', { exact: true })).toHaveValue('19000');
+    await expect(page.getByRole('button', { name: 'Revisar movimiento', exact: true })).toBeDisabled(); await captureAvailability('archived-edit');
+    run('wallets:restoreWallet', { walletId: id });
+    await expect(page.getByRole('button', { name: 'Revisar movimiento', exact: true })).toBeEnabled();
+    run('superadmin:setFeatureOverride', { accountId: account.accountId, featureKey: 'transactions.manage', enabled: false });
+    await expect(page.locator('.movement-error')).toContainText('deshabilitada'); await expect(page.getByLabel('Monto', { exact: true })).toHaveValue('19000');
+    await expect(page.getByRole('button', { name: 'Ver adicional.txt', exact: true })).toBeVisible(); await captureAvailability('permission-edit');
+    run('superadmin:setFeatureOverride', { accountId: account.accountId, featureKey: 'transactions.manage', enabled: true });
+    await expect(page.getByRole('button', { name: 'Revisar movimiento', exact: true })).toBeEnabled(); noDrafts(); assert.equal(list(id)[0].amountMinor, 1850000);
+    await step(page, r, 'Archivar y deshabilitar permisos conserva el monto y el archivo local sin crear borradores');
+    fault = 'missing'; await confirm(); await expect(page.locator('.movement-error')).toContainText('ya no está disponible');
+    fault = 'expired'; await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click(); await expect(page.locator('.movement-error')).toContainText('venció');
+    await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click(); await expect(page).toHaveURL(new RegExp('/transactions/' + tx._id + '$'));
+    assert.equal(list(id)[0].fileCount, 2); noDrafts();
+    await step(page, r, 'Un lote eliminado se reemplaza al reintentar, conservando el archivo seleccionado');
+    await edit(page, id, 'Edición recuperable'); await attach(page, ['comprobante.png']); fault = 'lost-result'; await confirm();
+    await expect(page.locator('.movement-error')).toContainText('Respuesta de confirmación perdida'); assert.equal(list(id)[0].fileCount, 3);
+    await page.getByRole('button', { name: 'Guardar cambios', exact: true }).click(); await expect(page).toHaveURL(new RegExp('/transactions/' + tx._id + '$'));
+    assert.equal(list(id).length, 1); assert.equal(list(id)[0].fileCount, 3); noDrafts();
+    await step(page, r, 'Una respuesta perdida se reintenta sobre la misma confirmación, sin duplicar archivos');
+    await edit(page, id, 'Edición recuperable'); await attach(page, ['comprobante.webp']); fault = 'interrupted'; await confirm();
+    await expect(page.locator('.movement-error')).toContainText('Interrupción de prueba');
+    // Disconnect Convex while keeping the app shell reachable; this is not an offline-browsing test.
+    offline = true; for (const socket of sockets) socket.close();
+    await expect(page.locator('.movement-notice')).toContainText('Sin conexión');
+    await page.getByRole('button', { name: 'Cancelar edición', exact: true }).click(); await page.getByRole('button', { name: 'Descartar cambios', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp('/transactions/' + tx._id + '$'), { timeout: 5000 });
+    offline = false; await page.context().setOffline(false); await expect(page.locator('.movement-detail-amount')).toBeVisible();
+    assert.equal(list(id)[0].fileCount, 3); assert.equal(list(id)[0].amountMinor, 1900000); noDrafts();
+    await step(page, r, 'Cancelar con Convex desconectado no espera la limpieza de la carga');
+    r.checks.push('Archivado y permisos no desmontan el editor abierto.', 'Un lote inexistente o vencido permite una carga nueva con los mismos archivos.', 'Una respuesta perdida conserva la idempotencia.', 'Cancelar con una carga pendiente no espera la conexión a Convex; la navegación requiere la app disponible.', 'No se crean borradores de edición.');
+  } finally {
+    offline = false; await page.context().setOffline(false);
+    run('superadmin:setFeatureOverride', { accountId: account.accountId, featureKey: 'transactions.manage', enabled: true });
+  }
+});
 
 // Storage and authorization evidence independent of browser UI.
 const securityWallet=wallet('Seguridad');

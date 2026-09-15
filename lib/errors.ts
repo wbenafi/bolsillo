@@ -1,3 +1,35 @@
+/** Convex actions can wrap a structured error from a nested query/mutation. */
+export function errorCode(error: unknown): string | undefined {
+  if (typeof error === "object" && error !== null && "data" in error) {
+    const data = error.data;
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "code" in data &&
+      typeof data.code === "string"
+    )
+      return data.code;
+  }
+  if (error instanceof Error) {
+    const marker = error.message.lastIndexOf("Uncaught ConvexError: ");
+    try {
+      const data: unknown = JSON.parse(
+        marker >= 0 ? error.message.slice(marker + 22) : error.message,
+      );
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "code" in data &&
+        typeof data.code === "string"
+      )
+        return data.code;
+    } catch {
+      // Transport failures have no application error code.
+    }
+  }
+  return undefined;
+}
+
 export function errorMessage(error: unknown) {
   if (
     typeof error === "object" &&
@@ -13,7 +45,8 @@ export function errorMessage(error: unknown) {
 
   if (error instanceof Error) {
     const marker = error.message.lastIndexOf("Uncaught ConvexError: ");
-    const message = marker >= 0 ? error.message.slice(marker + 22) : error.message;
+    const message =
+      marker >= 0 ? error.message.slice(marker + 22) : error.message;
 
     try {
       const data = JSON.parse(message) as unknown;

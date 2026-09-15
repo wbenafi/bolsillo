@@ -13,9 +13,10 @@ type TagSelectorProps = {
   tags: WalletTag[];
   selectedTagIds: Id<"tags">[];
   onChange: (tagIds: Id<"tags">[]) => void;
+  disabled?: boolean;
 };
 
-export function TagSelector({ walletId, tags, selectedTagIds, onChange }: TagSelectorProps) {
+export function TagSelector({ walletId, tags, selectedTagIds, onChange, disabled = false }: TagSelectorProps) {
   const [isCreating, setIsCreating] = useState(false);
   const canManageTags = useFeature("tags.manage");
 
@@ -27,13 +28,14 @@ export function TagSelector({ walletId, tags, selectedTagIds, onChange }: TagSel
 
   return (
     <div className="field tag-selector-field">
-      <div className="field-label-row"><span>Tags <small>Opcional</small></span>{canManageTags && <button type="button" onClick={() => setIsCreating(true)}><Plus /> Crear tag</button>}</div>
+      <div className="field-label-row"><span>Etiquetas <small>Opcional</small></span>{canManageTags && <button type="button" disabled={disabled} onClick={() => setIsCreating(true)}><Plus /> Crear tag</button>}</div>
       {tags.length ? (
         <div className="tag-options" aria-label="Tags del movimiento">
           {tags.map((tag) => (
             <button
               key={tag._id}
               type="button"
+              disabled={disabled}
               className={`tag-option tag-${tag.color}${selectedTagIds.includes(tag._id) ? " active" : ""}`}
               aria-pressed={selectedTagIds.includes(tag._id)}
               onClick={() => toggleTag(tag._id)}

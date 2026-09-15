@@ -175,7 +175,7 @@ npm run test:files:report
 ```
 
 El recorrido usa una cuenta dedicada `bolsillo.qa+clerk_test@example.com`,
-comprobantes ficticios y Chromium. Crea once videos WebM, capturas, descargas
+comprobantes ficticios y Chromium. Crea doce videos WebM, capturas, descargas
 verificadas y un informe HTML en `output/transaction-files-qa/<fecha>/`.
 `output/transaction-files-qa/index.html` abre el último informe. Los datos de
 demostración permanecen en la cuenta QA para poder revisarlos; los escenarios de
@@ -184,7 +184,11 @@ borrado eliminan sus propios movimientos y archivos.
 Se verifican los cinco formatos, persistencia, vistas previas, descargas, edición,
 arrastre, cancelación, límites, contenido inválido, reintentos, permisos, móvil,
 eliminación de movimientos, eliminación de bolsillos y edición concurrente desde
-dos pestañas. También se comprueban
+dos pestañas. El escenario de recuperación comprueba archivado y revocación de
+permisos con el editor abierto, reintento de lotes vencidos o inexistentes,
+confirmación idempotente tras perder una respuesta y cancelación sin esperar a
+Convex. Usa fallos controlados y mantiene la app accesible; no verifica navegación
+sin conexión. También se comprueban
 firmas, expiración y aislamiento entre cuentas contra el almacenamiento local.
 
 El comando inicia y detiene un relay HTTP exclusivo para las solicitudes reales
@@ -315,30 +319,36 @@ La firma se verifica antes de procesar cada evento. Las eliminaciones de Clerk c
 - `wallets.share`: generación y uso del resumen compartible.
 - `transactions.files`: carga, vista previa, descarga y eliminación de archivos privados en movimientos; deshabilitada por defecto.
 
-## Movimientos desde comprobantes con IA
+## Movimientos paso a paso
 
-El formulario tiene dos pestañas: **Manual** y **Comprobantes**. La segunda permite sumar fotos desde la cámara o archivos existentes, verlos y elegir cuáles leer juntos. Se usa un solo análisis para un solo movimiento; siempre se revisan los datos y se guarda manualmente. Los usuarios nuevos empiezan en Manual y se recuerda su última pestaña. Al editar se abre Manual y la lectura requiere un clic explícito.
+El flujo es **Empezar → Completar → Confirmar**. Empezar muestra **Completar manualmente** antes de la opción de comprobante. La lectura con IA se solicita explícitamente en ese primer paso, eligiendo fotos o archivos para un solo movimiento. Completar reúne los campos y los adjuntos opcionales: tanto la entrada manual como la asistida pueden agregar archivos sin ejecutar IA. Confirmar muestra el impacto en el saldo antes de registrar y lleva al detalle de consulta, desde donde se puede editar o eliminar con confirmación.
+
+Los movimientos nuevos siempre empiezan en Empezar; continuar un borrador de creación abre Completar con los datos y archivos guardados. El bolsillo separa **Registrados** y **Pendientes**; los filtros de movimientos mantienen visible el saldo global.
+
+Editar un movimiento registrado sigue **Completar → Confirmar**, sin ofrecer IA ni Continuar después y **sin crear borradores**. Campos, nombres, eliminaciones y archivos nuevos quedan en memoria hasta **Guardar cambios**. Abrir, modificar, adjuntar y cancelar antes de guardar no escriben en el servidor; cancelar conserva el movimiento original y su saldo. Los borradores de edición antiguos siguen recuperándose mediante su enlace explícito, pero el servidor impide crear otros.
 
 ### Activación y proveedor
 
-1. Desplegá las funciones y el esquema Convex junto con el frontend. `convex.json` incluye las dependencias nativas necesarias para preparar imágenes y PDF en las acciones Node 22.
+1. Desplegá las funciones, el esquema y el índice de pendientes de Convex antes de servir el nuevo frontend. Los campos nuevos son opcionales y conservan los registros existentes; los lotes de carga incorporan `expectedRevision` y `currency` para proteger la edición. `convex.json` incluye las dependencias nativas necesarias para preparar imágenes y PDF en las acciones Node 22.
 2. Configurá `QWEN_API_KEY` y `QWEN_BASE_URL` en **el entorno de Convex** (Dashboard → Settings → Environment Variables). Una variable en el frontend o solamente en `.env.local` no configura las acciones de Convex. Nunca uses variables `NEXT_PUBLIC` para la clave.
 3. En Superadmin → Cuenta → Acceso a funciones, habilitá **Archivos en movimientos** y **Leer comprobantes con IA**. La IA está apagada por defecto y usa el mismo alcance por cuenta que el flag de archivos.
-4. El límite inicial es **30 análisis por mes y cuenta**, configurable en ese panel. El cupo se renueva el día 1 a las 00:00 UTC. Desactivar IA no impide guardar manualmente un borrador ya obtenido, siempre que continúen habilitados los permisos de movimientos y archivos.
+4. El límite inicial es **30 análisis por mes y cuenta**, configurable en ese panel. El cupo se renueva el día 1 a las 00:00 UTC. Desactivar IA no impide completar manualmente un borrador con permiso de administrar movimientos. Agregar, renombrar o quitar archivos requiere el permiso de archivos; editar solo los campos conserva los adjuntos existentes aunque ese permiso se desactive.
 
 Se utiliza el SDK oficial `openai`, Chat Completions y el modelo exacto **`qwen3.8-flash`**, con la URL compatible de tu proveedor. El ejemplo de `.env.example` usa DashScope internacional; la clave debe pertenecer a ese endpoint. La [documentación de Qwen3.8-Flash](https://docs.qwencloud.com/developer-guides/getting-started/latest-model) describe soporte visual y `reasoning_effort: low`. Usamos [JSON Object](https://docs.qwencloud.com/developer-guides/text-generation/structured-output) y validación Zod en el servidor. No hay herramientas del agente, navegación ni escritura automática del movimiento.
 
-Las lecturas se ejecutan en una acción programada y persistente. El objetivo de experiencia es 5–10 segundos, sin garantizar esa latencia: la solicitud tiene un timeout de 30 segundos y un control de cierre a los 60 segundos. No hay reintentos automáticos del SDK. Un clic repetido recupera la extracción activa o el resultado ya obtenido para esos archivos, sin otra llamada. «Volver a leer» solicita explícitamente un nuevo análisis y consume otro cupo. Cambiar los archivos invalida el resultado previo; cambiar a Manual cancela la espera y descarta resultados tardíos.
+Las lecturas se ejecutan en una acción programada y persistente. El objetivo de experiencia es 5–10 segundos, sin garantizar esa latencia: la solicitud tiene un timeout de 30 segundos y un control de cierre a los 60 segundos. No hay reintentos automáticos del SDK. Un clic repetido recupera la extracción activa o el resultado ya obtenido para esos archivos, sin otra llamada. «Volver a leer» solicita explícitamente un nuevo análisis y consume otro cupo. Cambiar la selección de archivos para lectura invalida el resultado y sus revisiones; agregar respaldos en Completar conserva esa selección y el resultado. Elegir Completar manualmente cancela una lectura pendiente e impide aplicar respuestas tardías.
 
 ### Archivos, borradores y revisión
 
 - Hasta 5 archivos de 2 MB almacenados cada uno: JPG, PNG, WebP, PDF y TXT. Las fotos de hasta 20 MB se pueden reducir en el navegador, conservando una resolución legible; las imágenes decodificadas se limitan a 40 megapíxeles. HEIC no forma parte de esta versión: se explica cómo elegir JPG.
 - La lectura con IA conserva los bytes y la resolución de las imágenes ya subidas; solo se recodifican cuando hay que corregir una orientación EXIF. No se aplica una segunda compresión JPEG a capturas PNG ni a fotos que ya cumplen el límite.
 - Los PDF se renderizan en el servidor, con un máximo de 10 páginas en total por análisis. No se omiten páginas en silencio. Los PDF protegidos, dañados o demasiado extensos devuelven un error. TXT se limita a 40.000 caracteres para la lectura. Los originales PDF/TXT permanecen intactos en R2.
-- Los objetos R2 son privados, con URLs firmadas de corta duración. El servidor valida tamaño, tipo, contenido, cuenta, bolsillo y relación con el borrador antes de leerlos. Los archivos analizados se incorporan al movimiento en la misma transacción de base de datos que lo guarda.
-- Los borradores conservan archivos, datos manuales, resultado y decisiones de revisión durante **24 horas desde su creación**. Se retoman desde el bolsillo o la URL `?draft=…`. Los borradores no cambian el saldo. Guardar es idempotente y una edición concurrente se rechaza antes de sobrescribir datos.
-- Confianza por campo: `high`, `medium`, `low`, `unknown`, con motivo y evidencia de archivo/página. Los valores altos/medios completan campos vacíos; los medios muestran “Revisá”. Los valores bajos requieren “Usar este dato”, y los desconocidos quedan vacíos. Cualquier valor existente requiere una decisión explícita. La confianza es una estimación del modelo, no un porcentaje de exactitud.
-- Se sugieren únicamente tipo, monto, descripción, fecha, notas y tags existentes. Las monedas distintas y los posibles duplicados generan advertencias. No hay conversión automática ni creación automática de tags. La coincidencia de duplicados usa bolsillo, fecha, monto y tipo cuando está disponible.
+- Los objetos R2 son privados, con URLs firmadas de corta duración. El servidor valida tamaño, tipo, contenido, cuenta, bolsillo y relación con el borrador antes de leerlos. Al confirmar se guardan todos los adjuntos y se conserva cuáles fueron fuente de la lectura, separados de los respaldos agregados sin IA. El comprobante fuente cuenta dentro del límite de cinco archivos.
+- Los borradores de creación manuales y asistidos conservan archivos, datos, resultado y decisiones de revisión durante **24 horas desde su creación**. Los cambios se guardan tras 650 ms de inactividad; Continuar después espera el guardado. Se retoman en Completar desde Pendientes o la URL `?draft=…`. Los borradores no cambian el saldo. Guardar es idempotente. Las cargas fallidas permiten reintentar o continuar sin esos archivos; no se ofrece funcionamiento sin conexión.
+- La edición normal no tiene autoguardado. Guardar cambios verifica la revisión del movimiento y la moneda; cambiar archivos también verifica su revisión. Si hay cargas, el servidor repite estas comprobaciones al finalizar. Un conflicto conserva el trabajo local y evita sobrescribir otra edición. Quitar un comprobante también elimina su referencia como fuente de lectura. Si el bolsillo se archiva o se revoca el permiso de administrar movimientos con el editor abierto, un aviso bloquea el guardado y conserva los valores y archivos hasta restaurar el acceso o cancelar.
+- En una edición, un lote vencido o inexistente se descarta del intento para volver a cargar los mismos archivos al reintentar; una respuesta incierta conserva el lote para finalizar sin duplicados. Cancelar tras un intento de carga inicia la limpieza pendiente sin esperar su respuesta. La navegación necesita que la app siga accesible. Los enlaces internos y el cierre o recarga protegen cambios locales, pero el historial del navegador puede abandonarlos; no se promete persistencia local al salir.
+- Confianza por campo: `high`, `medium`, `low`, `unknown`, con motivo y evidencia de archivo/página. Los valores altos/medios completan campos vacíos que no fueron revisados. Los valores bajos requieren **Usar este dato**; los desconocidos no se completan automáticamente. Las sugerencias que difieren del dato actual se muestran junto al campo, con su explicación y acciones para usar o conservar el dato. Después de una lectura útil, el monto siempre requiere **Confirmar monto revisado** antes de avanzar, incluso si tiene confianza alta. Editarlo vuelve a requerir esa confirmación. La confianza es una estimación del modelo, no un porcentaje de exactitud.
+- Se sugieren únicamente tipo, monto, descripción, fecha, notas y tags existentes. Si la moneda del comprobante es distinta, el monto sugerido no se aplica: hay que ingresar y revisar el monto en la moneda del bolsillo. Si cambia la moneda del bolsillo, se bloquea el guardado: al crear, revisá el monto en un nuevo borrador; al editar, volvé a abrir el movimiento y revisalo en la moneda actual. No hay conversión automática ni creación automática de tags. Los posibles duplicados generan advertencias; la coincidencia usa bolsillo, fecha, monto y tipo cuando está disponible.
 - CRC y USD admiten hasta dos decimales: los totales impresos como `45181.00` y `45181.50` conservan su valor exacto. Todos los movimientos usan centésimos enteros; los registros CRC históricos se convierten una sola vez mediante una migración respaldada y verificada. Ver [precisión y migración de montos](docs/money-precision.md). La respuesta de IA se valida por campo: un campo mal formado queda pendiente de revisión y no elimina los otros datos válidos. Una respuesta sin datos utilizables sigue siendo un error.
 
 Al descartar o vencer un borrador se eliminan sus cargas pendientes mediante la cola de limpieza de R2. Los archivos ya guardados en un movimiento se conservan. El resultado con contenido del documento se elimina al vencer el borrador; los registros operativos se conservan durante 30 días y los totales mensuales permanecen disponibles. El cron horario reconcilia eliminaciones pendientes. Borrar el movimiento o bolsillo también limpia sus borradores asociados.
@@ -354,4 +364,8 @@ Para estimar costos, configurá también `QWEN_INPUT_USD_PER_MILLION` y `QWEN_OU
 
 Ejecutá `npm run lint`, `npm run typecheck`, `npm test` y `npm run build`. Los tests cubren aislamiento entre cuentas, archivos verificados, concurrencia, expiración, límites/idempotencia, cancelación, monedas/duplicados, validación de confianza, renderizado PDF y el formato real de la solicitud del SDK con un transporte simulado. La precisión y latencia de Qwen requieren además una prueba con la clave y el endpoint definitivos, usando comprobantes de prueba representativos.
 
-El flujo y las decisiones de producto están en [el plan HTML](docs/plan-movimientos-ia.html).
+La dirección implementada, la arquitectura y la evidencia de validación están en [Flujo de movimientos](docs/movement-flow.md). La revisión previa a integrar main registra **111 tests en 18 archivos**, lint, typecheck y build aprobados, más **12 escenarios de adjuntos** verificados en móvil y escritorio. El build requirió un reintento por descarga de fuentes. Las pruebas reales usaron `localhost:3034` con servicios locales aislados; la suite estándar main-flow no se ejecutó contra el servidor compartido `localhost:3000` ni se llamó al proveedor externo de IA. La revisión también verificó las correcciones de recuperación de edición.
+
+La validación de integración con main pasó **177 tests en 21 archivos**, lint, typecheck y build. El navegador verificó montos CRC con centésimos a través de creación, adjuntos, recuperación de borrador y edición sin crear borradores, además de navegación y totales de estadísticas. La integración se verificó en móvil y escritorio.
+
+El [plan de IA](docs/plan-movimientos-ia.html) y la [comparación de prototipos](docs/ux-review/index.html) se conservan como antecedentes. Los resultados de revisión previos a integrar `origin/main` y la validación de integración se documentan por separado en [flujo de movimientos](docs/movement-flow.md). No se desplegó a producción. Los clientes antiguos que sigan abiertos pueden necesitar recargarse para mostrar la nueva confirmación explícita del monto y dejar de intentar crear borradores de edición.

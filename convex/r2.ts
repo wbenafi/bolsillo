@@ -290,3 +290,21 @@ export const processDeletionJobs = internalAction({
     }
   },
 });
+
+// Attachment verification and access never dispatch receipt extraction.
+export const verifyDraftUpload = action({ args: { draftId: v.id("transactionDrafts"), batchId: v.id("fileUploadBatches") }, handler: async (ctx, { draftId, batchId }): Promise<Id<"transactionFiles">[]> => {
+  const { batch, files } = await ctx.runQuery(internal.transactionFiles.getBatchForUpload, { batchId });
+  if (batch.draftId !== draftId || batch.status !== "pending" || batch.expiresAt <= Date.now()) throw new Error("La carga ya no está disponible.");
+  const { client, bucket } = r2Configuration();
+  const verified = [];
+  for (const file of files) {
+    const data = await verifiedR2File(client, bucket, file);
+    verified.push({ fileId: file._id, etag: data.etag ?? "verified" });
+  }
+  return ctx.runMutation(internal.transactionDrafts.verifiedFiles, { draftId, batchId, files: verified });
+} });
+export const readDraftFile = action({ args: { draftId: v.id("transactionDrafts"), fileId: v.id("transactionFiles") }, handler: async (ctx, args): Promise<{ url: string }> => {
+  const file = await ctx.runQuery(internal.transactionDrafts.fileForRead, args);
+  const { client, bucket, expiresIn } = r2Configuration(true);
+  return { url: browserFileUrl(await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: file.objectKey }), { expiresIn })) };
+} });

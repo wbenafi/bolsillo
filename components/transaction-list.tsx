@@ -28,7 +28,7 @@ export function TransactionList({ transactions, currency, tags = [], hasActiveFi
       {transactions.map((transaction) => (
         <Link
           className="transaction-row"
-          href={`/wallets/${transaction.walletId}/transactions/${transaction._id}/edit`}
+          href={`/wallets/${transaction.walletId}/transactions/${transaction._id}`}
           key={transaction._id}
         >
           <div className="transaction-copy">

@@ -49,3 +49,6 @@ next-env.d.ts
 /r2/cors.json
 /.local/
 /.convex/
+
+# Local design review artifacts
+/.impeccable/

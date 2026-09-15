@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import type { FunctionArgs } from "convex/server";
 import { modules } from "./test.setup";
 import { parseMoneyInput } from "../lib/money";
 
@@ -18,6 +19,17 @@ async function setup() {
   const draftId = await owner.mutation(api.transactionDrafts.create, { walletId, clientKey: "draft-1", values, mode: "documents" });
   return { t, owner, viewer, walletId, draftId };
 }
+// Simulate records written by the previous application. New edit drafts are
+// rejected by the public create mutation, while these can still be recovered.
+async function legacyEditDraft(d: Awaited<ReturnType<typeof setup>>, args: FunctionArgs<typeof api.transactionDrafts.create>) {
+  const draftId = await d.owner.mutation(api.transactionDrafts.create, { walletId: args.walletId, clientKey: args.clientKey, values: args.values, mode: args.mode });
+  await d.t.run(async ctx => {
+    const transaction = await ctx.db.get(args.transactionId!);
+    const files = await ctx.db.query("transactionFiles").withIndex("by_transaction", q => q.eq("transactionId", args.transactionId!)).collect();
+    await ctx.db.patch(draftId, { transactionId: args.transactionId, baseRevision: transaction?.revision ?? 0, baseFileRevision: transaction?.fileRevision ?? 0, fileIds: files.map(file => file._id) });
+  });
+  return draftId;
+}
 async function uploaded(data: Awaited<ReturnType<typeof setup>>, count = 1) {
   const batch = await data.owner.mutation(api.transactionDrafts.beginFiles, { draftId: data.draftId, files: Array.from({ length: count }, (_, i) => ({ originalName: `comprobante-${i}.txt`, mimeType: "text/plain" as const, sizeBytes: 12 })) });
   await data.owner.mutation(internal.transactionDrafts.verifiedFiles, { draftId: data.draftId, batchId: batch.batchId, files: batch.fileIds.map(fileId => ({ fileId, etag: "server-verified" })) });
@@ -28,12 +40,16 @@ async function uploaded(data: Awaited<ReturnType<typeof setup>>, count = 1) {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 describe("receipt drafts", () => {
-  it("requires both feature flags and stores the user's last mode", async () => {
+  it("allows manual drafts without file or AI access and keeps the previous mode preference", async () => {
     const d = await setup();
     await d.owner.mutation(api.transactionDrafts.setPreferredMode, { mode: "documents" });
     expect((await d.owner.query(api.users.current, {}))!.user.newTransactionMode).toBe("documents");
     await d.owner.mutation(api.superadmin.setFeatureOverride, { accountId: d.viewer.account._id, featureKey: "transactions.files", enabled: false });
-    await expect(d.owner.mutation(api.transactionDrafts.create, { walletId: d.walletId, clientKey: "other", values, mode: "manual" })).rejects.toThrow("no está habilitada");
+    await d.owner.mutation(api.superadmin.setFeatureOverride, { accountId: d.viewer.account._id, featureKey: "transactions.aiExtract", enabled: false });
+    const draftId = await d.owner.mutation(api.transactionDrafts.create, { walletId: d.walletId, clientKey: "other", values, mode: "manual" });
+    const transactionId = await d.owner.mutation(api.transactionDrafts.save, { draftId, version: 0, ...payload });
+    expect((await d.owner.query(api.transactions.getTransaction, { transactionId })).description).toBe(values.description);
+    await expect(d.owner.mutation(api.transactionDrafts.beginFiles, { draftId: d.draftId, files: [{ originalName: "file.txt", mimeType: "text/plain", sizeBytes: 12 }] })).rejects.toThrow("no está habilitada");
   });
   it("keeps drafts for 24h without creating accounting records and commits once", async () => {
     const d = await setup(); const batch = await uploaded(d);
@@ -73,7 +89,7 @@ describe("receipt drafts", () => {
   });
   it("does not overwrite a movement edited in another session", async () => {
     const d = await setup(); const transactionId = await d.owner.mutation(api.transactions.createTransaction, { walletId: d.walletId, ...payload });
-    const draftId = await d.owner.mutation(api.transactionDrafts.create, { walletId: d.walletId, transactionId, expectedRevision: 0, expectedFileRevision: 0, clientKey: "edit", values, mode: "manual" });
+    const draftId = await legacyEditDraft(d, { walletId: d.walletId, transactionId, expectedRevision: 0, expectedFileRevision: 0, clientKey: "edit", values, mode: "manual" });
     await d.owner.mutation(api.transactions.updateTransaction, { transactionId, ...payload, description: "Nueva descripción" });
     await expect(d.owner.mutation(api.transactionDrafts.save, { draftId, version: 0, ...payload })).rejects.toThrow("otra sesión");
   });
@@ -140,7 +156,9 @@ describe("AI results and warnings", () => {
     await d.t.mutation(internal.transactionExtractions.finish, { extractionId, result: result(), pages: [1], inputTokens: 100, outputTokens: 50 });
     const draft = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
     expect(draft.extraction?.result).toMatchObject({ duplicate: true, currencyMismatch: false });
-    await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload })).resolves.toBeTruthy();
+    await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload })).rejects.toThrow("confirmalo");
+    const version = await d.owner.mutation(api.transactionDrafts.update, { draftId: d.draftId, version: batch.version, values, mode: "documents", fileIds: batch.fileIds, selectedFileIds: batch.fileIds, reviewedFields: ["amount"] });
+    await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version, ...payload })).resolves.toBeTruthy();
   });
   it.each([
     { amount: "18500.00", stored: 1850000 },
@@ -176,8 +194,9 @@ describe("AI results and warnings", () => {
     await d.t.mutation(internal.transactionExtractions.dispatch, { extractionId });
     await d.t.mutation(internal.transactionExtractions.finish, { extractionId, result: result("USD"), pages: [1] });
     expect((await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!.extraction?.result).toMatchObject({ currencyMismatch: true, currency: "USD" });
-    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload, amountMinor: 6000 });
-    expect((await d.owner.query(api.transactions.getTransaction, { transactionId: id })).amountMinor).toBe(6000);
+    const version = await d.owner.mutation(api.transactionDrafts.update, { draftId: d.draftId, version: batch.version, values: { ...values, amount: "6000" }, mode: "documents", fileIds: batch.fileIds, selectedFileIds: batch.fileIds, reviewedFields: ["amount"] });
+    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version, ...payload, amountMinor: 600000 });
+    expect((await d.owner.query(api.transactions.getTransaction, { transactionId: id })).amountMinor).toBe(600000);
   });
   it("records irrelevant-document errors without creating a movement", async () => {
     const d = await setup(); const batch = await uploaded(d);
@@ -212,4 +231,104 @@ it("makes an explicit reread billable while deduplicating a retried request", as
   expect(await d.owner.mutation(api.transactionExtractions.start, { draftId: d.draftId, version: batch.version, reanalyze: true, requestKey: "second" })).toBe(second);
   await d.t.mutation(internal.transactionExtractions.dispatch, { extractionId: second });
   expect(await d.owner.query(api.transactionExtractions.usage, {})).toMatchObject({ used: 2, reserved: 0 });
+});
+
+describe("step-by-step movements", () => {
+  it("attaches and commits files without AI access or analysis usage", async () => {
+    const d = await setup();
+    await d.owner.mutation(api.superadmin.setFeatureOverride, { accountId: d.viewer.account._id, featureKey: "transactions.aiExtract", enabled: false });
+    const batch = await uploaded(d);
+    const version = await d.owner.mutation(api.transactionDrafts.update, { draftId: d.draftId, version: batch.version, values, mode: "manual", fileIds: batch.fileIds, selectedFileIds: [], reviewedFields: [] });
+    await expect(d.owner.mutation(api.transactionExtractions.start, { draftId: d.draftId, version })).rejects.toThrow("no está habilitada");
+    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version, ...payload });
+    expect(await d.owner.query(api.transactions.getTransaction, { transactionId: id })).toMatchObject({ files: [expect.objectContaining({ originalName: "comprobante-0.txt" })] });
+    expect(await d.owner.query(api.transactionExtractions.usage, {})).toMatchObject({ used: 0, reserved: 0 });
+  });
+
+  it("preserves the reviewed source and suggestions when only backing files change", async () => {
+    const d = await setup(); const source = await uploaded(d);
+    const extractionId = await d.owner.mutation(api.transactionExtractions.start, { draftId: d.draftId, version: source.version });
+    await d.t.run(ctx => ctx.db.patch(extractionId, { status: "ready", result: { status: "ok", currency: "CRC", currencyMismatch: false, duplicate: false } }));
+    const reviewedVersion = await d.owner.mutation(api.transactionDrafts.update, { draftId: d.draftId, version: source.version, values, mode: "documents", fileIds: source.fileIds, selectedFileIds: source.fileIds, reviewedFields: ["amount"] });
+    const extra = await d.owner.mutation(api.transactionDrafts.beginFiles, { draftId: d.draftId, files: [{ originalName: "respaldo.txt", mimeType: "text/plain", sizeBytes: 12 }] });
+    await d.owner.mutation(internal.transactionDrafts.verifiedFiles, { draftId: d.draftId, batchId: extra.batchId, files: extra.fileIds.map(fileId => ({ fileId, etag: "verified" })) });
+    const version = await d.owner.mutation(api.transactionDrafts.update, { draftId: d.draftId, version: reviewedVersion, values, mode: "documents", fileIds: [...source.fileIds, ...extra.fileIds], selectedFileIds: source.fileIds, reviewedFields: ["amount"] });
+    const draft = (await d.owner.query(api.transactionDrafts.get, { draftId: d.draftId }))!;
+    expect(draft.extraction?._id).toBe(extractionId);
+    expect(draft.reviewedFields).toEqual(["amount"]);
+    const id = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version, ...payload });
+    const record = await d.owner.query(api.transactions.getTransaction, { transactionId: id });
+    expect("files" in record ? record.files : undefined).toHaveLength(2);
+    expect(record.receiptFileIds).toEqual(source.fileIds);
+  });
+
+  it("preserves existing files during field-only editing after attachment access is disabled", async () => {
+    const d = await setup(); const batch = await uploaded(d);
+    const transactionId = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload });
+    await d.owner.mutation(api.superadmin.setFeatureOverride, { accountId: d.viewer.account._id, featureKey: "transactions.files", enabled: false });
+    const draftId = await legacyEditDraft(d, { walletId: d.walletId, transactionId, expectedRevision: 1, clientKey: "edit-without-files", values: { ...values, description: "Datos corregidos" }, mode: "manual" });
+    await d.owner.mutation(api.transactionDrafts.save, { draftId, version: 0, ...payload, description: "Datos corregidos" });
+    expect(await d.t.run(ctx => ctx.db.get(batch.fileIds[0]))).toMatchObject({ transactionId, status: "ready" });
+  });
+
+  it("rejects stale confirmation data and changed currency without affecting balance", async () => {
+    const d = await setup();
+    await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: 0, ...payload, amountMinor: 12 })).rejects.toThrow("desde la revisión");
+    await d.t.run(ctx => ctx.db.patch(d.walletId, { currency: "USD" }));
+    await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: 0, currency: "CRC", ...payload })).rejects.toThrow("moneda");
+    expect(await d.owner.query(api.transactions.listTransactionsByWallet, { walletId: d.walletId })).toEqual([]);
+  });
+
+  it("blocks creation, updates and deletion while archived; detail remains readable", async () => {
+    const d = await setup();
+    const transactionId = await d.owner.mutation(api.transactions.createTransaction, { walletId: d.walletId, ...payload });
+    await d.owner.mutation(api.wallets.archiveWallet, { walletId: d.walletId });
+    await expect(d.owner.mutation(api.transactionDrafts.create, { walletId: d.walletId, clientKey: "archived", values, mode: "manual" })).rejects.toThrow();
+    await expect(d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: 0, ...payload })).rejects.toThrow("Restaurá");
+    await expect(d.owner.mutation(api.transactions.deleteTransaction, { transactionId })).rejects.toThrow("Restaurá");
+    expect((await d.owner.query(api.transactions.getTransaction, { transactionId })).description).toBe(values.description);
+  });
+
+  it("rejects stale deletion and foreign draft access", async () => {
+    const d = await setup();
+    const transactionId = await d.owner.mutation(api.transactions.createTransaction, { walletId: d.walletId, ...payload });
+    await d.owner.mutation(api.transactions.updateTransaction, { transactionId, ...payload, description: "Actualizado" });
+    await expect(d.owner.mutation(api.transactions.deleteTransaction, { transactionId, expectedRevision: 0 })).rejects.toThrow("otra sesión");
+    const stranger = d.t.withIdentity({ subject: "another-movement-owner" });
+    await stranger.mutation(api.users.ensureCurrent, {});
+    await expect(stranger.query(api.transactionDrafts.get, { draftId: d.draftId })).rejects.toThrow();
+    await expect(stranger.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: 0, ...payload })).rejects.toThrow();
+  });
+
+  it("keeps original attachments until an edited draft is explicitly committed", async () => {
+    const d = await setup(); const batch = await uploaded(d, 2);
+    const transactionId = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload });
+    const draftId = await legacyEditDraft(d, { walletId: d.walletId, transactionId, expectedRevision: 1, expectedFileRevision: 1, clientKey: "remove-file", values, mode: "manual" });
+    const version = await d.owner.mutation(api.transactionDrafts.update, { draftId, version: 0, values, mode: "manual", fileIds: [batch.fileIds[0]], selectedFileIds: [], reviewedFields: [] });
+    expect(await d.owner.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ fileCount: 2 });
+    await d.owner.mutation(api.transactionDrafts.save, { draftId, version, ...payload });
+    expect(await d.owner.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ fileCount: 1 });
+    expect((await d.owner.query(api.wallets.getWallet, { walletId: d.walletId }))?.balance).toBe(-1850000);
+  });
+});
+
+it("keeps file renames in the draft until confirmation", async () => {
+  const d = await setup(); const batch = await uploaded(d);
+  const transactionId = await d.owner.mutation(api.transactionDrafts.save, { draftId: d.draftId, version: batch.version, ...payload });
+  const draftId = await legacyEditDraft(d, { walletId: d.walletId, transactionId, expectedRevision: 1, expectedFileRevision: 1, clientKey: "rename-file", values, mode: "manual" });
+  const version = await d.owner.mutation(api.transactionDrafts.update, { draftId, version: 0, values, mode: "manual", fileIds: batch.fileIds, selectedFileIds: [], reviewedFields: [], fileNames: [{ fileId: batch.fileIds[0], displayName: "Factura del taller" }] });
+  expect((await d.owner.query(api.transactionDrafts.get, { draftId }))?.files[0].displayName).toBe("Factura del taller");
+  expect(await d.t.run(ctx => ctx.db.get(batch.fileIds[0]))).not.toHaveProperty("displayName");
+  await d.owner.mutation(api.transactionDrafts.save, { draftId, version, ...payload });
+  expect(await d.t.run(ctx => ctx.db.get(batch.fileIds[0]))).toHaveProperty("displayName", "Factura del taller");
+});
+
+it("retries a fresh creation after an expired draft with the same client key awaits cleanup", async () => {
+  const d = await setup();
+  await d.t.run(ctx => ctx.db.patch(d.draftId, { expiresAt: Date.now() - 1 }));
+  vi.setSystemTime(Date.now() + 1);
+  const args = { walletId: d.walletId, clientKey: "draft-1", values, mode: "manual" as const };
+  const fresh = await d.owner.mutation(api.transactionDrafts.create, args);
+  expect(fresh).not.toBe(d.draftId);
+  expect(await d.owner.mutation(api.transactionDrafts.create, args)).toBe(fresh);
 });
