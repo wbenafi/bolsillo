@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "results": [
+    "Manual entry, native upload, private preview, rename, saved draft and reload preserve data without AI.",
+    "Opening, editing fields, adding/previewing attachments and cancelling cause zero server mutations and zero draft creation.",
+    "Confirmation saves local attachments and edits the same movement without draft mutations or duplicate balance contributions.",
+    "A fresh manual draft and confirmation work without the AI entitlement.",
+    "Destructive actions provide a named confirmation with the balance impact."
+  ]
+}

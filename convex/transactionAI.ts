@@ -2,33 +2,17 @@
 
 import OpenAI from "openai";
 import { v } from "convex/values";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
-import { action, internalAction } from "./_generated/server";
-import { browserFileUrl, r2Configuration, verifiedR2File } from "./r2";
+import { internalAction } from "./_generated/server";
+import { r2Configuration, verifiedR2File } from "./r2";
 import { parseExtractionResponse, normalizeExtraction } from "../lib/transaction-extraction";
 import { prepareReceiptImage } from "../lib/prepare-receipt-image";
 import { createReceiptClient, requestReceipt } from "../lib/qwen-receipt-client";
 import { renderReceiptPdf } from "../lib/render-receipt-pdf";
 
-export const verifyUpload = action({ args: { draftId: v.id("transactionDrafts"), batchId: v.id("fileUploadBatches") }, handler: async (ctx, { draftId, batchId }): Promise<Id<"transactionFiles">[]> => {
-  const { batch, files } = await ctx.runQuery(internal.transactionFiles.getBatchForUpload, { batchId });
-  if (batch.draftId !== draftId || batch.status !== "pending" || batch.expiresAt <= Date.now()) throw new Error("La carga ya no está disponible.");
-  const { client, bucket } = r2Configuration();
-  const verified = [];
-  for (const file of files) {
-    const data = await verifiedR2File(client, bucket, file);
-    verified.push({ fileId: file._id, etag: data.etag ?? "verified" });
-  }
-  return ctx.runMutation(internal.transactionDrafts.verifiedFiles, { draftId, batchId, files: verified });
-} });
-export const readDraftFile = action({ args: { draftId: v.id("transactionDrafts"), fileId: v.id("transactionFiles") }, handler: async (ctx, args): Promise<{ url: string }> => {
-  const file = await ctx.runQuery(internal.transactionDrafts.fileForRead, args);
-  const { client, bucket, expiresIn } = r2Configuration(true);
-  return { url: browserFileUrl(await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: file.objectKey }), { expiresIn })) };
-} });
+// Compatibility for clients deployed before file operations moved out of AI.
+export { verifyDraftUpload as verifyUpload, readDraftFile } from "./r2";
+
 export const analyze = internalAction({ args: { extractionId: v.id("transactionExtractions") }, handler: async (ctx, { extractionId }): Promise<void> => {
   let errorCode = "unavailable";
   try {

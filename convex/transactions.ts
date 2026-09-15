@@ -6,15 +6,16 @@ import { mutation, query } from "./_generated/server";
 import { featureAccess, requireAccountContext, requireFeature } from "./auth";
 import { requireOwnedWallet } from "./domain";
 import { validateAssignedTagIds } from "./tags";
-import { transactionFields, validatedTransactionFields } from "./transactionDomain";
+import { transactionFields, validatedTransactionFields, transactionPreconditions, requireTransactionPreconditions } from "./transactionDomain";
 import { transactionTypeValidator } from "./schema";
 import { deleteMovementDrafts } from "./transactionDrafts";
 import { deleteTransactionFiles, publicTransactionFiles } from "./transactionFiles";
 
-function hideFileCount<T extends { fileCount?: number; fileRevision?: number }>(transaction: T) {
+function hideFileCount<T extends { fileCount?: number; fileRevision?: number; receiptFileIds?: unknown }>(transaction: T) {
   const visibleTransaction = { ...transaction };
   delete visibleTransaction.fileCount;
   delete visibleTransaction.fileRevision;
+  delete visibleTransaction.receiptFileIds;
   return visibleTransaction;
 }
 
@@ -159,7 +160,7 @@ export const createTransaction = mutation({
 });
 
 export const updateTransaction = mutation({
-  args: { transactionId: v.id("transactions"), ...transactionFields },
+  args: { transactionId: v.id("transactions"), ...transactionPreconditions, ...transactionFields },
   handler: async (ctx, args) => {
     const { ownerId, account } = await requireAccountContext(ctx);
     await requireFeature(ctx, account._id, "transactions.manage");
@@ -172,20 +173,23 @@ export const updateTransaction = mutation({
       throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para editar movimientos." });
     }
     const tagIds = await validateAssignedTagIds(ctx, args.tagIds, transaction.walletId, ownerId);
+    requireTransactionPreconditions(transaction, wallet, args);
     await ctx.db.patch(args.transactionId, { ...validatedTransactionFields(args), tagIds, revision: (transaction.revision ?? 0) + 1, updatedAt: Date.now() });
   },
 });
 
 export const deleteTransaction = mutation({
-  args: { transactionId: v.id("transactions") },
-  handler: async (ctx, { transactionId }) => {
+  args: { transactionId: v.id("transactions"), expectedRevision: v.optional(v.number()) },
+  handler: async (ctx, { transactionId, expectedRevision }) => {
     const { ownerId, account } = await requireAccountContext(ctx);
     await requireFeature(ctx, account._id, "transactions.manage");
     const transaction = await ctx.db.get(transactionId);
     if (!transaction || transaction.ownerId !== ownerId) {
       throw new ConvexError({ code: "TRANSACTION_NOT_FOUND", message: "No encontramos este movimiento." });
     }
-    await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
+    const wallet = await requireOwnedWallet(ctx, transaction.walletId, ownerId, account._id);
+    if (wallet.archivedAt) throw new ConvexError({ code: "WALLET_ARCHIVED", message: "Restaurá el bolsillo para eliminar movimientos." });
+    if (expectedRevision !== undefined && (transaction.revision ?? 0) !== expectedRevision) throw new ConvexError({ code: "TRANSACTION_CONFLICT", message: "El movimiento cambió en otra sesión. Revisá sus datos antes de eliminarlo." });
     await deleteMovementDrafts(ctx, transaction._id);
     await deleteTransactionFiles(ctx, transaction._id, account._id);
     await ctx.db.delete(transactionId);

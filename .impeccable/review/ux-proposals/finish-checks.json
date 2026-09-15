@@ -1,0 +1,53 @@
+{
+  "results": [
+    {
+      "name": "a receipt source survives edit, draft, and commit",
+      "pass": true
+    },
+    {
+      "name": "a read-only existing edit cannot resume",
+      "pass": true
+    },
+    {
+      "name": "b receipt source survives edit, draft, and commit",
+      "pass": true
+    },
+    {
+      "name": "b read-only existing edit cannot resume",
+      "pass": true
+    },
+    {
+      "name": "c receipt source survives edit, draft, and commit",
+      "pass": true
+    },
+    {
+      "name": "c read-only existing edit cannot resume",
+      "pass": true
+    },
+    {
+      "name": "Extracted receipt stays independent after correction",
+      "pass": true
+    },
+    {
+      "name": "C expanded inbox hides all rationale",
+      "pass": true
+    },
+    {
+      "name": "C expanded capture hides all rationale",
+      "pass": true
+    },
+    {
+      "name": "C expanded resume hides all rationale",
+      "pass": true
+    },
+    {
+      "name": "Neutral comparison, mobile and desktop",
+      "pass": true
+    },
+    {
+      "name": "No browser exceptions",
+      "pass": true
+    }
+  ],
+  "consoleErrors": []
+}

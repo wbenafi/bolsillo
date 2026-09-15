@@ -40,11 +40,11 @@ export function ReceiptDocuments({ draftId, files, selected, onSelect, onRemove,
       <button type="button" className="receipt-remove" aria-label={`Quitar ${file.originalName}`} onClick={() => onRemove(file._id)} disabled={disabled || uploading}><X size={18} /></button>
     </li>)}</ul>}
     {files.length > 1 && <p className="receipt-help">Marcá los archivos que querés leer juntos.</p>}
-    {expanded && preview && <FileViewerDialog draftId={draftId} file={{ ...preview, kind: "stored" }} onClose={() => setExpanded(false)} />}
+    {expanded && preview && <FileViewerDialog draftId={draftId} file={preview} onClose={() => setExpanded(false)} />}
   </section>;
 }
 function ReceiptPreview({ file, draftId, onOpen }: { file: TransactionFile; draftId?: Id<"transactionDrafts">; onOpen: () => void }) {
-  const read = useAction(api.transactionAI.readDraftFile);
+  const read = useAction(api.r2.readDraftFile);
   const readStored = useAction(api.r2.createReadUrl);
   const [preview, setPreview] = useState<{ id: string; url?: string; text?: string; failed?: boolean }>();
   useEffect(() => {

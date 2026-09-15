@@ -3,22 +3,22 @@
 import { useAction } from "convex/react";
 import { Download, LoaderCircle, X } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { api } from "@/convex/_generated/api";
 import { errorMessage } from "@/lib/errors";
 import { transactionFileKind } from "@/lib/transaction-files";
-import type { TransactionFileDraft } from "@/components/transaction-files-field";
+import type { TransactionAttachment } from "@/types/domain";
 
 import type { Id } from "@/convex/_generated/dataModel";
 
 type FileViewerDialogProps = {
   draftId?: Id<"transactionDrafts">;
-  file: TransactionFileDraft;
+  file: TransactionAttachment;
   onClose: () => void;
 };
 
-function downloadName(file: TransactionFileDraft) {
+function downloadName(file: TransactionAttachment) {
   const requested = file.displayName?.trim();
   if (!requested) return file.originalName;
   const extension = file.originalName.match(/\.[^.]+$/)?.[0] ?? "";
@@ -29,9 +29,10 @@ function downloadName(file: TransactionFileDraft) {
 }
 
 export function FileViewerDialog({ file, onClose, draftId }: FileViewerDialogProps) {
+  const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const createReadUrl = useAction(api.r2.createReadUrl);
-  const readDraftFile = useAction(api.transactionAI.readDraftFile);
+  const readDraftFile = useAction(api.r2.readDraftFile);
   const [sourceUrl, setSourceUrl] = useState<string>();
   const [text, setText] = useState<string>();
   const [error, setError] = useState<string>();
@@ -52,15 +53,20 @@ export function FileViewerDialog({ file, onClose, draftId }: FileViewerDialogPro
       setSourceUrl(undefined);
       setText(undefined);
       try {
-        if (file.kind === "local") {
-          if (kind === "text") setText(await file.file.text());
-          if (!canceled) setSourceUrl(file.objectUrl);
+        if ("localFile" in file) {
+          generatedUrl = URL.createObjectURL(file.localFile);
+          if (kind === "text") {
+            const contents = await file.localFile.text();
+            if (!canceled) setText(contents);
+          }
+          if (!canceled) setSourceUrl(generatedUrl);
           return;
         }
         const signed = draftId ? await readDraftFile({ draftId, fileId: file._id }) : await createReadUrl({ fileId: file._id });
         const response = await fetch(signed.url, { cache: "no-store" });
         if (!response.ok) throw new Error("No se pudo descargar el archivo privado.");
         const blob = await response.blob();
+        if (canceled) return;
         generatedUrl = URL.createObjectURL(blob);
         if (kind === "text") {
           const contents = await blob.text();
@@ -93,6 +99,7 @@ export function FileViewerDialog({ file, onClose, draftId }: FileViewerDialogPro
     <dialog
       ref={dialogRef}
       className="file-viewer-dialog"
+      aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -100,7 +107,7 @@ export function FileViewerDialog({ file, onClose, draftId }: FileViewerDialogPro
     >
       <div className="file-viewer-shell">
         <header>
-          <div><p className="eyebrow">Vista previa</p><h2>{title}</h2></div>
+          <div><h2 id={titleId}>{title}</h2></div>
           <div>
             <button type="button" className="button secondary" onClick={download} disabled={!sourceUrl || Boolean(error)}><Download /> Descargar</button>
             <button type="button" className="icon-link" onClick={onClose} aria-label="Cerrar vista previa"><X /></button>

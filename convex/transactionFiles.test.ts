@@ -345,3 +345,70 @@ describe("attachment edit concurrency", () => {
     })).rejects.toThrow("otra pestaña");
   });
 });
+
+describe("editing existing movements without drafts", () => {
+  it("rejects edit draft creation and saves fields directly without creating a draft", async () => {
+    const { t, asUser, walletId, transactionId } = await editableTransaction();
+    await expect(asUser.mutation(api.transactionDrafts.create, { walletId, transactionId, clientKey: "forbidden-edit", expectedRevision: 0, values: { type: "expense", amount: "2400", description: "Original", date: "2026-09-13", notes: "", tagIds: [] }, mode: "manual" })).rejects.toThrow("no crean borradores");
+    await asUser.mutation(api.transactions.updateTransaction, { transactionId, expectedRevision: 0, currency: "CRC", ...editFields, amountMinor: 2400 });
+    expect(await asUser.query(api.wallets.getWallet, { walletId })).toMatchObject({ balance: -2400 });
+    expect(await t.run(ctx => ctx.db.query("transactionDrafts").collect())).toHaveLength(0);
+    expect(await t.run(ctx => ctx.db.query("fileUploadBatches").collect())).toHaveLength(0);
+  });
+
+  it("rejects stale field saves and currency changes without modifying the original", async () => {
+    const { t, asUser, walletId, transactionId } = await editableTransaction();
+    await asUser.mutation(api.transactions.updateTransaction, { transactionId, expectedRevision: 0, currency: "CRC", ...editFields, description: "Otra sesión" });
+    await expect(asUser.mutation(api.transactions.updateTransaction, { transactionId, expectedRevision: 0, currency: "CRC", ...editFields })).rejects.toThrow("otra sesión");
+    await t.run(ctx => ctx.db.patch(walletId, { currency: "USD" }));
+    await expect(asUser.mutation(api.transactions.updateTransaction, { transactionId, expectedRevision: 1, currency: "CRC", ...editFields })).rejects.toThrow("moneda");
+    expect(await asUser.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ description: "Otra sesión", revision: 1 });
+    expect(await t.run(ctx => ctx.db.query("transactionDrafts").collect())).toHaveLength(0);
+  });
+
+  it("preserves attachments when file access is disabled and only fields are edited", async () => {
+    const { t, asUser, transactionId, begin, commit } = await editableTransaction();
+    const batch = await begin(0); await commit(batch);
+    const viewer = (await asUser.query(api.users.current, {}))!;
+    await asUser.mutation(api.superadmin.setFeatureOverride, { accountId: viewer.account._id, featureKey: "transactions.files", enabled: false });
+    await asUser.mutation(api.transactions.updateTransaction, { transactionId, expectedRevision: 1, currency: "CRC", ...editFields, description: "Solo datos" });
+    expect(await t.run(ctx => ctx.db.get(batch.fileIds[0]))).toMatchObject({ status: "ready", transactionId });
+    expect(await t.run(ctx => ctx.db.get(transactionId))).toMatchObject({ fileCount: 1, description: "Solo datos" });
+    expect(await t.run(ctx => ctx.db.query("transactionDrafts").collect())).toHaveLength(0);
+  });
+
+  it("rechecks the movement revision after uploading and cleans only the losing batch", async () => {
+    const { t, asUser, walletId, transactionId, commit } = await editableTransaction();
+    const batch = await asUser.mutation(api.transactionFiles.beginUpload, { walletId, transactionId, expectedFileRevision: 0, expectedRevision: 0, currency: "CRC", retainedFileIds: [], files: [{ originalName: "new.txt", mimeType: "text/plain", sizeBytes: 24, order: 0 }] });
+    await asUser.mutation(api.transactions.updateTransaction, { transactionId, expectedRevision: 0, currency: "CRC", ...editFields, description: "Cambio posterior" });
+    await expect(commit(batch)).rejects.toThrow("otra sesión");
+    await asUser.mutation(api.transactionFiles.abortUpload, { batchId: batch.batchId });
+    expect(await t.run(ctx => ctx.db.get(batch.fileIds[0]))).toBeNull();
+    expect(await asUser.query(api.transactions.getTransaction, { transactionId })).toMatchObject({ description: "Cambio posterior", revision: 1 });
+    expect(await t.run(ctx => ctx.db.query("transactionDrafts").collect())).toHaveLength(0);
+  });
+
+  it("commits uploaded edits once and rejects a changed currency during upload", async () => {
+    const { t, asUser, walletId, transactionId, commit } = await editableTransaction();
+    const batch = await asUser.mutation(api.transactionFiles.beginUpload, { walletId, transactionId, expectedFileRevision: 0, expectedRevision: 0, currency: "CRC", retainedFileIds: [], files: [{ originalName: "new.txt", mimeType: "text/plain", sizeBytes: 24, order: 0 }] });
+    await t.run(ctx => ctx.db.patch(walletId, { currency: "USD" }));
+    await expect(commit(batch)).rejects.toThrow("moneda");
+    await t.run(ctx => ctx.db.patch(walletId, { currency: "CRC" }));
+    expect(await commit(batch)).toBe(transactionId);
+    expect(await commit(batch)).toBe(transactionId);
+    expect(await t.run(ctx => ctx.db.get(transactionId))).toMatchObject({ revision: 1, fileCount: 1 });
+    expect(await t.run(ctx => ctx.db.query("transactionDrafts").collect())).toHaveLength(0);
+  });
+
+  it("checks revisions for renames and removes deleted receipt sources at commit", async () => {
+    const { t, asUser, transactionId, begin, commit } = await editableTransaction();
+    const batch = await begin(0); await commit(batch);
+    await t.run(ctx => ctx.db.patch(transactionId, { receiptFileIds: batch.fileIds }));
+    const files = [{ fileId: batch.fileIds[0], displayName: "Nombre corregido", order: 0 }];
+    await expect(asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 1, expectedRevision: 0, currency: "CRC", files, ...editFields })).rejects.toThrow("otra sesión");
+    await asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 1, expectedRevision: 1, currency: "CRC", files, ...editFields });
+    await asUser.mutation(api.transactionFiles.updateTransactionWithFiles, { transactionId, expectedFileRevision: 2, expectedRevision: 2, currency: "CRC", files: [], ...editFields });
+    expect(await t.run(ctx => ctx.db.get(transactionId))).toMatchObject({ fileCount: 0, receiptFileIds: [] });
+    expect(await t.run(ctx => ctx.db.query("transactionDrafts").collect())).toHaveLength(0);
+  });
+});

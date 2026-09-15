@@ -1,0 +1,145 @@
+{
+  "passed": true,
+  "scenarios": 12,
+  "environment": "Real development Clerk authentication with isolated local Convex and MinIO. Ignored adapter supplies isolated configuration, disables slowMo and maps localhost to IPv4; application assertions unchanged.",
+  "first_run": "output/transaction-files-qa/2026-09-14T02-35-41/results.json",
+  "retry_run": "output/transaction-files-qa/2026-09-14T02-43-15/results.json",
+  "retry_reason": "The archive scenario timed out on the session verification screen during a hard navigation. Only that scenario was repeated with a fresh session and passed.",
+  "results": [
+    {
+      "id": "01-carga-formatos",
+      "title": "Carga de los cinco formatos",
+      "status": "passed",
+      "checks": [
+        "Cinco archivos persistidos en Convex y MinIO.",
+        "Movimiento creado una sola vez.",
+        "Saldo actualizado por CRC 18 500.",
+        "Miniaturas y adjuntos recuperados después de recargar."
+      ]
+    },
+    {
+      "id": "02-vistas-descargas",
+      "title": "Vistas previas y descargas",
+      "status": "passed",
+      "checks": [
+        "comprobante.jpg: vista previa abierta; descarga con nombre y bytes originales.",
+        "comprobante.png: vista previa abierta; descarga con nombre y bytes originales.",
+        "comprobante.webp: vista previa abierta; descarga con nombre y bytes originales.",
+        "factura.pdf: vista previa abierta; descarga con nombre y bytes originales.",
+        "detalle.txt: vista previa abierta; descarga con nombre y bytes originales."
+      ]
+    },
+    {
+      "id": "03-edicion-cancelacion",
+      "title": "Editar, reemplazar y cancelar",
+      "status": "passed",
+      "checks": [
+        "Renombre persistido y extensión .png conservada al descargar.",
+        "Archivo reemplazado eliminado físicamente.",
+        "Nuevo archivo y orden persistidos.",
+        "Cancelar la edición no modifica los adjuntos registrados ni crea borradores."
+      ]
+    },
+    {
+      "id": "04-validaciones",
+      "title": "Límites y archivos no permitidos",
+      "status": "passed",
+      "checks": [
+        "EXE, TXT vacío y TXT de 2 MB + 1 byte rechazados.",
+        "Un lote de seis archivos se rechaza sin una carga parcial.",
+        "El selector se deshabilita al alcanzar el máximo.",
+        "Descartar no registra un movimiento."
+      ]
+    },
+    {
+      "id": "05-contenido-falso",
+      "title": "Validación del contenido real",
+      "status": "passed",
+      "checks": [
+        "Convex rechaza la firma de contenido inválida.",
+        "No se crea un movimiento parcial.",
+        "La corrección permite guardar una sola vez."
+      ]
+    },
+    {
+      "id": "06-fallo-reintento",
+      "title": "Fallo de carga y reintento",
+      "status": "passed",
+      "checks": [
+        "Fallo parcial no cambia saldo ni crea movimiento.",
+        "Formulario y archivos conservados para reintentar.",
+        "Reintento crea un único movimiento con dos archivos."
+      ]
+    },
+    {
+      "id": "07-permisos",
+      "title": "Deshabilitar y restaurar el feature",
+      "status": "passed",
+      "checks": [
+        "Cambio administrativo aplicado en UI y backend.",
+        "Deshabilitar preserva el archivo.",
+        "Rehabilitar recupera la vista previa sin volver a cargarlo."
+      ]
+    },
+    {
+      "id": "08-eliminar-movimiento",
+      "title": "Eliminar un movimiento con archivos",
+      "status": "passed",
+      "checks": [
+        "La confirmación menciona los archivos.",
+        "Cancelar conserva movimiento y archivos.",
+        "Confirmar elimina ambos objetos de MinIO.",
+        "Saldo recalculado a cero."
+      ]
+    },
+    {
+      "id": "09-movil",
+      "title": "Flujo de adjuntos en móvil",
+      "status": "passed",
+      "checks": [
+        "Carga y persistencia en viewport móvil.",
+        "Visor de imagen y TXT utilizable.",
+        "Descarga con nombre original.",
+        "Eliminar adjunto guarda correctamente.",
+        "Sin desbordamiento horizontal."
+      ]
+    },
+    {
+      "id": "10-bolsillo-archivado",
+      "title": "Archivar, restaurar y eliminar un bolsillo",
+      "status": "passed",
+      "checks": [
+        "Archivar preserva el adjunto.",
+        "Restaurar permite volver a visualizarlo.",
+        "Eliminar el bolsillo borra físicamente el archivo.",
+        "La confirmación advierte sobre los adjuntos."
+      ]
+    },
+    {
+      "id": "11-edicion-concurrente",
+      "title": "Edición sin borradores desde dos pestañas",
+      "status": "passed",
+      "checks": [
+        "Abrir, modificar, adjuntar y confirmar una edición no crea borradores.",
+        "Los cambios quedan locales hasta confirmar.",
+        "Las revisiones evitan sobrescribir datos y archivos de otra sesión.",
+        "Cancelar conserva el movimiento registrado."
+      ]
+    },
+    {
+      "id": "12-recuperacion-edicion",
+      "title": "Recuperar una edición local interrumpida",
+      "status": "passed",
+      "checks": [
+        "Archivado y permisos no desmontan el editor abierto.",
+        "Un lote inexistente o vencido permite una carga nueva con los mismos archivos.",
+        "Una respuesta perdida conserva la idempotencia.",
+        "Cancelar con una carga pendiente no espera la conexión a Convex; la navegación requiere la app disponible.",
+        "No se crean borradores de edición."
+      ]
+    }
+  ],
+  "recovery_run": "output/transaction-files-qa/2026-09-14T03-02-42/results.json",
+  "recovery_fault_injection": "Clerk, app and storage remain real. The harness aborts an actual batch to provoke UPLOAD_NOT_FOUND, injects an UPLOAD_EXPIRED response, replaces a successful finalize response to test idempotency, and disconnects Convex WebSockets while the Next app remains available. This does not verify offline browsing.",
+  "recovery_harness_corrections": "Fault injection was adjusted for the local Convex WebSocket proxy. A full-browser offline trial reached the browser network-error page during navigation; the final cancel test isolates the lost Convex connection. No offline navigation capability is claimed."
+}

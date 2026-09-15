@@ -1,0 +1,15 @@
+[
+  {
+    "antipattern": "side-tab",
+    "name": "Side-tab accent border",
+    "description": "Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "/home/walter/.t3/worktrees/bolsillo/t3code-6374f0ae/app/globals.css",
+    "line": 67,
+    "snippet": ".app-header::before — absolute 3px pseudo-element stripe (top: 0)",
+    "importedBy": [
+      "layout.tsx"
+    ]
+  }
+]

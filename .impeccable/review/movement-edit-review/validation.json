@@ -1,0 +1,54 @@
+{
+  "checks": {
+    "eslint": "passed",
+    "typescript": "passed",
+    "vitest": {
+      "files": 18,
+      "tests": 111,
+      "status": "passed"
+    },
+    "next_production_build": "passed",
+    "git_diff_check": "passed",
+    "build_retry": "One build could not download Google Fonts; repeating it without code changes passed."
+  },
+  "scope": "Local branch changes; no PR exists for this branch.",
+  "limits": [
+    "External AI provider not called.",
+    "Standard main-flow Playwright suite not run against shared localhost:3000; isolated browser harness used localhost:3034.",
+    "Discard is local and does not await Convex cleanup. Navigation still requires the app to be reachable; full offline browsing is not supported."
+  ],
+  "deployment": "No production deployment.",
+  "browser": {
+    "status": "passed",
+    "environment": "Real development Clerk session, isolated local Convex and MinIO, synthetic records, application localhost:3034",
+    "viewports": [
+      {
+        "width": 390,
+        "height": 844
+      },
+      {
+        "width": 1440,
+        "height": 1100
+      }
+    ],
+    "report": "browser-checks.json",
+    "checks": "WebSocket observation proves no mutation before edit confirmation and no transactionDrafts mutations throughout edit/cancel/save.",
+    "harness_correction": "An initial balance assertion ran before navigation to the saved detail. The harness now waits for that URL; the rerun passed."
+  },
+  "attachment_browser_harness": {
+    "status": "passed",
+    "scenarios": 12,
+    "report": "attachment-checks.json"
+  },
+  "detector": {
+    "status": "passed",
+    "findings": 0,
+    "report": "detector.json"
+  },
+  "review": {
+    "initial": "finish-review.md",
+    "verdict": "verdict.md",
+    "disposition": "ship",
+    "scope": "Two material fixes scored resolved; this verdict does not constitute a new whole-surface review."
+  }
+}

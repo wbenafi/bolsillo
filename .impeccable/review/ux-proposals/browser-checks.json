@@ -1,0 +1,102 @@
+{
+  "results": [
+    {
+      "name": "a desktop layout",
+      "pass": true
+    },
+    {
+      "name": "a add, detail, edit, draft, resume, post",
+      "pass": true
+    },
+    {
+      "name": "a mobile inbox",
+      "pass": true
+    },
+    {
+      "name": "a mobile editor",
+      "pass": true
+    },
+    {
+      "name": "b desktop layout",
+      "pass": true
+    },
+    {
+      "name": "b add, detail, edit, draft, resume, post",
+      "pass": true
+    },
+    {
+      "name": "b mobile inbox",
+      "pass": true
+    },
+    {
+      "name": "b mobile editor",
+      "pass": true
+    },
+    {
+      "name": "c desktop layout",
+      "pass": true
+    },
+    {
+      "name": "c add, detail, edit, draft, resume, post",
+      "pass": true
+    },
+    {
+      "name": "c mobile inbox",
+      "pass": true
+    },
+    {
+      "name": "c mobile editor",
+      "pass": true
+    },
+    {
+      "name": "Validation and focus",
+      "pass": true
+    },
+    {
+      "name": "Failure keeps unsaved work and recovery succeeds",
+      "pass": true
+    },
+    {
+      "name": "Receipt review must confirm amount",
+      "pass": true
+    },
+    {
+      "name": "Read-only movement can be consulted",
+      "pass": true
+    },
+    {
+      "name": "Expired draft recovery",
+      "pass": true
+    },
+    {
+      "name": "Unreadable receipt has manual fallback",
+      "pass": true
+    },
+    {
+      "name": "USD precision and persisted draft",
+      "pass": true
+    },
+    {
+      "name": "Search retains true balance",
+      "pass": true
+    },
+    {
+      "name": "320px long content and large amounts",
+      "pass": true
+    },
+    {
+      "name": "Skip link keeps current proposal",
+      "pass": true
+    },
+    {
+      "name": "Local HTML works without a server",
+      "pass": true
+    },
+    {
+      "name": "No unhandled browser errors",
+      "pass": true
+    }
+  ],
+  "consoleErrors": [],
+  "failures": []
+}

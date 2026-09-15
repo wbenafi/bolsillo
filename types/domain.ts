@@ -32,6 +32,7 @@ export type WalletTransaction = {
   tagIds?: Id<"tags">[];
   fileCount?: number;
   fileRevision?: number;
+  receiptFileIds?: Id<"transactionFiles">[];
   revision?: number;
   files?: TransactionFile[];
   createdAt: number;
@@ -49,6 +50,13 @@ export type TransactionFile = {
   createdAt: number;
   updatedAt: number;
 };
+
+/** An edit keeps new attachments in memory until the user confirms saving. */
+export type LocalTransactionFile = Omit<TransactionFile, "_id"> & {
+  _id: string;
+  localFile: File;
+};
+export type TransactionAttachment = TransactionFile | LocalTransactionFile;
 
 export type WalletTag = {
   _id: Id<"tags">;
