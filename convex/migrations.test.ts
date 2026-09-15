@@ -100,12 +100,20 @@ describe("one-time CRC migration", () => {
 
   it("keeps draft strings unchanged and lets a resumed draft save the migrated amount", async () => {
     const d = await setup();
-    const draftId = await d.owner.mutation(api.transactionDrafts.create, { walletId: d.crcWalletId, transactionId: d.ids[0], expectedRevision: 3, expectedFileRevision: 0, clientKey: "before-migration", mode: "manual", values });
+    // An edit draft persisted by the previous app; new edits no longer create drafts.
+    const now = Date.now();
+    const draftId = await d.t.run(ctx => ctx.db.insert("transactionDrafts", {
+      accountId: d.viewer.account._id, userId: d.viewer.user._id, walletId: d.crcWalletId,
+      transactionId: d.ids[0], baseRevision: 3, baseFileRevision: 0,
+      clientKey: "before-migration", mode: "manual", values, version: 0,
+      fileIds: [], selectedFileIds: [], reviewedFields: [], status: "active",
+      createdAt: now, updatedAt: now, expiresAt: now + 86400000,
+    }));
     const before = await d.t.run(ctx => ctx.db.get(draftId));
     await d.t.mutation(internal.migrations.migrateCrcToHundredths, await d.snapshot());
     expect(await d.t.run(ctx => ctx.db.get(draftId))).toEqual(before);
     const draft = (await d.owner.query(api.transactionDrafts.get, { draftId }))!;
-    const args = { draftId, version: draft.version, ...fields, type: "income" as const, amountMinor: parseMoneyInput(draft.values.amount, "CRC")! };
+    const args = { draftId, version: draft.version, ...fields, type: draft.values.type, description: draft.values.description, amountMinor: parseMoneyInput(draft.values.amount, "CRC")! };
     await d.owner.mutation(api.transactionDrafts.save, args);
     await d.owner.mutation(api.transactionDrafts.save, args);
     expect(await d.t.run(ctx => ctx.db.get(d.ids[0]))).toMatchObject({ amountMinor: 5000000 });

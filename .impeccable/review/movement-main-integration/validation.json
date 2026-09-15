@@ -1,0 +1,63 @@
+{
+  "validatedAt": "2026-09-15T01:50:21.696786+00:00",
+  "base": "origin/main at 39cbb1401e30f9e21b634a756c40cf9655fe9433",
+  "scope": "Integration of the guided movement flows with the merged CRC decimal support and wallet statistics.",
+  "checks": {
+    "unitAndDomain": {
+      "command": "npm test",
+      "passed": true,
+      "testFiles": 21,
+      "tests": 177
+    },
+    "lint": {
+      "command": "npm run lint",
+      "passed": true
+    },
+    "typecheck": {
+      "command": "npm run typecheck",
+      "passed": true
+    },
+    "productionBuild": {
+      "command": "npm run build",
+      "passed": true
+    },
+    "diffWhitespace": {
+      "command": "git diff origin/main --check",
+      "passed": true
+    },
+    "localBackend": {
+      "passed": true,
+      "environment": "Isolated Convex 3340 and MinIO 9040"
+    },
+    "browser": {
+      "passed": true,
+      "runner": "Playwright, isolated QA harness",
+      "url": "http://localhost:3034",
+      "authentication": "Real development Clerk session",
+      "data": "Synthetic CRC wallet",
+      "viewports": [
+        [
+          390,
+          844
+        ],
+        [
+          1440,
+          1100
+        ]
+      ],
+      "screenshots": 16,
+      "results": "browser-checks.json"
+    }
+  },
+  "integrationChanges": [
+    "Preserved main CRC/USD hundredths, migration, statistics endpoints, indexes, navigation and chart bounds.",
+    "Shared amount field exposes a decimal keyboard and two-decimal help; validation and QA assertions retain cents.",
+    "Migration recovery test now seeds a legacy edit draft directly and submits its reviewed fields; new edits remain unable to create drafts."
+  ],
+  "limits": [
+    "The earlier 12 attachment scenarios and 18 review captures remain historical evidence; this integration run exercises the decimal draft/edit/attachment path and statistics drilldown.",
+    "The standard main-flow Playwright suite was updated, but not run against the shared localhost:3000 server.",
+    "The external AI provider was not called, and nothing was deployed to production.",
+    "An old unresponsive dev-server process caused the first authentication attempt to time out; restarting this worktree server allowed the full browser run to pass."
+  ]
+}
