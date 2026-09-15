@@ -1,9 +1,0 @@
-{
-  "passed": true,
-  "results": [
-    "Manual second step has no receipt prompt; changing method preserves input",
-    "Manual path still reaches confirmation",
-    "Existing receipt retains one consultation action after review",
-    "Mobile and desktop render without overflow or browser exceptions"
-  ]
-}

@@ -1,9 +1,0 @@
-{
-  "passed": true,
-  "results": [
-    "Manual entry, native upload, private preview, rename, saved draft and reload preserve data without AI.",
-    "Confirm returns to read-only detail; continuing an edit preserves the original until confirmation and replaces its balance contribution.",
-    "A fresh manual draft and confirmation work without the AI entitlement.",
-    "Destructive actions provide a named confirmation with the balance impact."
-  ]
-}

@@ -30,9 +30,5 @@ Los datos se guardan en `localStorage`, separados por propuesta, bajo `bolsillo-
 
 - [Informe de revisión](REVIEW.md): hallazgos, alcance y límites.
 - [Contrato de las propuestas](DIRECTION.md): intención y diferencias entre experiencias.
-- [24 comprobaciones iniciales](../../.impeccable/review/ux-proposals/browser-checks.json).
-- [12 comprobaciones posteriores a la revisión final](../../.impeccable/review/ux-proposals/finish-checks.json).
-- [Verificación de adjuntos en Paso a paso](../../.impeccable/review/ux-proposals/b-attachments-checks.json).
-- [Capturas de móvil y escritorio](../../.impeccable/review/ux-proposals/).
 
 La revisión final dio por resueltos los cuatro ajustes solicitados. Esa conclusión cubre el prototipo aislado; no constituye una validación de producción.
