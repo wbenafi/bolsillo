@@ -10,6 +10,12 @@ import { transactionFileTypeValidator } from "./schema";
 import { validateAssignedTagIds } from "./tags";
 import { transactionFields, validatedTransactionFields, transactionPreconditions, requireTransactionPreconditions } from "./transactionDomain";
 import {
+  deletionRetryDelay,
+  missingR2Configuration,
+  R2_DELETION_BATCH_SIZE,
+  R2_DELETION_MAX_RETRY_MS,
+} from "../lib/r2-cleanup";
+import {
   MAX_TRANSACTION_FILE_BYTES,
   MAX_TRANSACTION_FILE_DISPLAY_NAME_LENGTH,
   MAX_TRANSACTION_FILE_NAME_LENGTH,
@@ -135,7 +141,7 @@ export async function queueObjectDeletions(
       }),
     ),
   );
-  await ctx.scheduler.runAfter(0, internal.r2.processDeletionJobs, { jobIds });
+  await ctx.scheduler.runAfter(0, internal.transactionFiles.dispatchDeletionJobs, { jobIds });
 }
 
 export function publicFile(file: Doc<"transactionFiles">) {
@@ -620,11 +626,60 @@ export const abandonBatchToDeletionJobs = internalMutation({
   },
 });
 
+async function objectIsReferenced(ctx: DatabaseContext, objectKey: string) {
+  return Boolean(await ctx.db.query("transactionFiles")
+    .withIndex("by_object_key", (q) => q.eq("objectKey", objectKey)).first());
+}
+
+// Retries, new deletions, and hourly recovery all pass through this mutation.
+// Missing configuration is a durable deferral, not another failed Node action.
+export const dispatchDeletionJobs = internalMutation({
+  args: { jobIds: v.array(v.id("r2DeletionJobs")) },
+  handler: async (ctx, { jobIds }) => {
+    const missing = missingR2Configuration();
+    if (missing.length) {
+      console.warn("r2.cleanup.deferred", { requested: jobIds.length, reason: "R2_NOT_CONFIGURED", missing });
+      return;
+    }
+    const now = Date.now();
+    let eligible: Id<"r2DeletionJobs">[] = [];
+    const schedule = async () => {
+      const scheduledFunctionId = await ctx.scheduler.runAfter(0, internal.r2.processDeletionJobs, { jobIds: eligible });
+      await Promise.all(eligible.map((id) => ctx.db.patch(id, { scheduledFunctionId })));
+      eligible = [];
+    };
+    for (const jobId of new Set(jobIds)) {
+      const job = await ctx.db.get(jobId);
+      if (!job || job.nextAttemptAt > now) continue;
+      if (job.scheduledFunctionId) {
+        const scheduled = await ctx.db.system.get(job.scheduledFunctionId);
+        if (scheduled?.state.kind === "pending" || scheduled?.state.kind === "inProgress") continue;
+      }
+      if (await objectIsReferenced(ctx, job.objectKey)) {
+        // Keep the job visible and retryable, but never delete a live attachment.
+        await ctx.db.patch(jobId, {
+          lastError: "FILE_STILL_REFERENCED",
+          nextAttemptAt: now + R2_DELETION_MAX_RETRY_MS,
+          updatedAt: now,
+        });
+        continue;
+      }
+      eligible.push(jobId);
+      if (eligible.length === R2_DELETION_BATCH_SIZE) await schedule();
+    }
+    if (eligible.length) await schedule();
+  },
+});
+
 export const getDeletionJobs = internalQuery({
   args: { jobIds: v.array(v.id("r2DeletionJobs")) },
   handler: async (ctx, { jobIds }) => {
-    const jobs = await Promise.all(jobIds.map((jobId) => ctx.db.get(jobId)));
-    return jobs.filter((job): job is Doc<"r2DeletionJobs"> => Boolean(job));
+    const jobs: Doc<"r2DeletionJobs">[] = [];
+    for (const jobId of new Set(jobIds)) {
+      const job = await ctx.db.get(jobId);
+      if (job && job.nextAttemptAt <= Date.now() && !(await objectIsReferenced(ctx, job.objectKey))) jobs.push(job);
+    }
+    return jobs;
   },
 });
 
@@ -641,24 +696,25 @@ export const applyDeletionResults = internalMutation({
     );
     if (!failed.length) return;
     const now = Date.now();
-    let nextDelay = 6 * 60 * 60 * 1000;
-    const retryIds = [] as Id<"r2DeletionJobs">[];
+    const retries = new Map<number, Id<"r2DeletionJobs">[]>();
     for (const failure of failed) {
       const job = await ctx.db.get(failure.jobId);
       if (!job) continue;
       const attempts = job.attempts + 1;
-      const delay = Math.min(6 * 60 * 60 * 1000, 60_000 * 2 ** Math.min(attempts, 8));
-      nextDelay = Math.min(nextDelay, delay);
+      const delay = deletionRetryDelay(attempts);
       await ctx.db.patch(job._id, {
         attempts,
         nextAttemptAt: now + delay,
         lastError: failure.error.slice(0, 500),
+        scheduledFunctionId: undefined,
         updatedAt: now,
       });
+      const retryIds = retries.get(delay) ?? [];
       retryIds.push(job._id);
+      retries.set(delay, retryIds);
     }
-    if (retryIds.length) {
-      await ctx.scheduler.runAfter(nextDelay, internal.r2.processDeletionJobs, {
+    for (const [delay, retryIds] of retries) {
+      await ctx.scheduler.runAfter(delay, internal.transactionFiles.dispatchDeletionJobs, {
         jobIds: retryIds,
       });
     }
@@ -673,14 +729,14 @@ export const reconcileStorageCleanup = internalMutation({
       ctx.db
         .query("r2DeletionJobs")
         .withIndex("by_next_attempt", (q) => q.lte("nextAttemptAt", now))
-        .take(50),
+        .take(R2_DELETION_BATCH_SIZE),
       ctx.db
         .query("fileUploadBatches")
         .withIndex("by_expiration", (q) => q.lte("expiresAt", now))
         .take(20),
     ]);
     if (jobs.length) {
-      await ctx.scheduler.runAfter(0, internal.r2.processDeletionJobs, {
+      await ctx.scheduler.runAfter(0, internal.transactionFiles.dispatchDeletionJobs, {
         jobIds: jobs.map(({ _id }) => _id),
       });
     }

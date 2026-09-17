@@ -17,6 +17,7 @@ import { transactionFields } from "./transactionDomain";
 import { contentMatchesFileType } from "../lib/transaction-file-content";
 import { readTransactionFileBody } from "../lib/read-transaction-file-body";
 import { MAX_TRANSACTION_FILE_BYTES, type TransactionFileType } from "../lib/transaction-files";
+import { R2_DELETION_BATCH_SIZE } from "../lib/r2-cleanup";
 
 const retainedFileValidator = v.object({
   fileId: v.id("transactionFiles"),
@@ -259,34 +260,58 @@ export const cleanupExpiredBatch = internalAction({
 export const processDeletionJobs = internalAction({
   args: { jobIds: v.array(v.id("r2DeletionJobs")) },
   handler: async (ctx, { jobIds }): Promise<void> => {
-    const jobs = await ctx.runQuery(internal.transactionFiles.getDeletionJobs, { jobIds });
-    if (!jobs.length) return;
+    const startedAt = Date.now();
+    const metrics = { requested: jobIds.length, attempted: 0, retries: 0, succeeded: 0, failed: 0, r2Requests: 0, r2DurationMs: 0, sdkAttempts: 0 };
     try {
-      const { client, bucket } = r2Configuration();
-      const response = await client.send(
-        new DeleteObjectsCommand({
-          Bucket: bucket,
-          Delete: { Objects: jobs.map(({ objectKey: Key }) => ({ Key })) },
-        }),
-      );
-      const errorsByKey = new Map(
-        (response.Errors ?? []).map((error) => [error.Key, error.Message ?? error.Code ?? "R2 rechazó la eliminación."]),
-      );
-      await ctx.runMutation(internal.transactionFiles.applyDeletionResults, {
-        succeeded: jobs
-          .filter(({ objectKey }) => !errorsByKey.has(objectKey))
-          .map(({ _id }) => _id),
-        failed: jobs.flatMap((job) => {
-          const error = errorsByKey.get(job.objectKey);
-          return error ? [{ jobId: job._id, error }] : [];
-        }),
-      });
-    } catch (error) {
-      const message = errorMessage(error);
-      await ctx.runMutation(internal.transactionFiles.applyDeletionResults, {
-        succeeded: [],
-        failed: jobs.map((job) => ({ jobId: job._id, error: message })),
-      });
+      // Also bound legacy actions that were scheduled before the dispatcher.
+      const uniqueIds = [...new Set(jobIds)];
+      for (let offset = 0; offset < uniqueIds.length; offset += R2_DELETION_BATCH_SIZE) {
+        const jobs = await ctx.runQuery(internal.transactionFiles.getDeletionJobs, {
+          jobIds: uniqueIds.slice(offset, offset + R2_DELETION_BATCH_SIZE),
+        });
+        if (!jobs.length) continue;
+        metrics.attempted += jobs.length;
+        metrics.retries += jobs.filter((job) => job.attempts > 0).length;
+        let succeeded: Id<"r2DeletionJobs">[] = [];
+        let failed: Array<{ jobId: Id<"r2DeletionJobs">; error: string }> = [];
+        try {
+          const { client, bucket } = r2Configuration();
+          const requestStartedAt = Date.now();
+          metrics.r2Requests++;
+          try {
+            const response = await client.send(new DeleteObjectsCommand({
+              Bucket: bucket,
+              Delete: { Objects: jobs.map(({ objectKey: Key }) => ({ Key })) },
+            }));
+            metrics.sdkAttempts += response.$metadata.attempts ?? 1;
+            const errorsByKey = new Map((response.Errors ?? []).map((error) => [
+              error.Key, error.Message || error.Code || "R2 rechazó la eliminación.",
+            ]));
+            succeeded = jobs.filter(({ objectKey }) => !errorsByKey.has(objectKey)).map(({ _id }) => _id);
+            failed = jobs.flatMap((job) => {
+              const error = errorsByKey.get(job.objectKey);
+              return error ? [{ jobId: job._id, error }] : [];
+            });
+          } catch (error) {
+            // The SDK can retry inside one send; include its reported attempts
+            // for rejected requests as well as successful responses.
+            const attempts = (error as { $metadata?: { attempts?: number } } | null)?.$metadata?.attempts;
+            metrics.sdkAttempts += attempts ?? 1;
+            throw error;
+          } finally {
+            metrics.r2DurationMs += Date.now() - requestStartedAt;
+            client.destroy();
+          }
+        } catch (error) {
+          failed = jobs.map((job) => ({ jobId: job._id, error: errorMessage(error) }));
+        }
+        await ctx.runMutation(internal.transactionFiles.applyDeletionResults, { succeeded, failed });
+        metrics.succeeded += succeeded.length;
+        metrics.failed += failed.length;
+      }
+    } finally {
+      // Counts/timings only: no object keys, credentials, or attachment metadata.
+      console.info("r2.cleanup.completed", { ...metrics, durationMs: Date.now() - startedAt });
     }
   },
 });

@@ -19,7 +19,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "convex:dev": "convex dev",
-    "convex:codegen": "convex codegen"
+    "convex:codegen": "convex codegen",
+    "test:cleanup:compare": "node scripts/qa/r2-cleanup-compare.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
