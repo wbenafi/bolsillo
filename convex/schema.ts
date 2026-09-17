@@ -199,6 +199,7 @@ export default defineSchema({
     expiresAt: v.optional(v.number()),
   })
     .index("by_transaction", ["transactionId", "order"])
+    .index("by_object_key", ["objectKey"])
     .index("by_wallet", ["walletId"])
     .index("by_batch", ["uploadBatchId"])
     .index("by_account", ["accountId"]),
@@ -237,6 +238,7 @@ export default defineSchema({
     attempts: v.number(),
     nextAttemptAt: v.number(),
     lastError: v.optional(v.string()),
+    scheduledFunctionId: v.optional(v.id("_scheduled_functions")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
