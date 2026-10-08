@@ -1,13 +1,13 @@
 "use node";
 
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { r2Configuration, verifiedR2File } from "./r2";
 import { parseExtractionResponse, normalizeExtraction } from "../lib/transaction-extraction";
 import { prepareReceiptImage } from "../lib/prepare-receipt-image";
-import { createReceiptClient, requestReceipt } from "../lib/qwen-receipt-client";
+import { createReceiptClient, requestReceipt, parseReceiptResponse, receiptUsage, type ReceiptContent } from "../lib/anthropic-receipt-client";
 import { renderReceiptPdf } from "../lib/render-receipt-pdf";
 
 // Compatibility for clients deployed before file operations moved out of AI.
@@ -18,14 +18,13 @@ export const analyze = internalAction({ args: { extractionId: v.id("transactionE
   try {
     const input = await ctx.runQuery(internal.transactionExtractions.input, { extractionId });
     if (!input) { await ctx.runMutation(internal.transactionExtractions.finish, { extractionId, errorCode: "disabled" }); return; }
-    const apiKey = process.env.QWEN_API_KEY?.trim();
-    const baseURL = process.env.QWEN_BASE_URL?.trim();
+    const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
     errorCode = "not_configured";
-    if (!apiKey || !baseURL || new URL(baseURL).protocol !== "https:") throw new Error("Missing provider configuration");
-    const client = createReceiptClient(apiKey, baseURL);
+    if (!apiKey) throw new Error("Missing provider configuration");
+    const client = createReceiptClient(apiKey);
     const storage = r2Configuration();
     errorCode = "invalid_document";
-    const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [{ type: "text", text: `Moneda del bolsillo (no asumir que coincide con el documento): ${input.currency}. Tags existentes: ${JSON.stringify(input.tags)}. Archivos del mismo comprobante:` }];
+    const content: ReceiptContent[] = [{ type: "text", text: `Moneda del bolsillo (no asumir que coincide con el documento): ${input.currency}. Tags existentes: ${JSON.stringify(input.tags)}. Archivos del mismo comprobante:` }];
     const pages: number[] = [];
     let pdfPages = 0;
     for (const [index, file] of input.files.entries()) {
@@ -42,7 +41,8 @@ export const analyze = internalAction({ args: { extractionId: v.id("transactionE
         if (file.mimeType === "application/pdf") pdfPages += images.length;
         pages.push(images.length);
         for (const [page, image] of images.entries()) {
-          content.push({ type: "text", text: `Archivo ${index + 1}, página ${page + 1}` }, { type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.bytes.toString("base64")}` } });
+          if (image.mimeType !== "image/jpeg" && image.mimeType !== "image/png" && image.mimeType !== "image/webp") throw new Error("Unsupported receipt image");
+          content.push({ type: "text", text: `Archivo ${index + 1}, página ${page + 1}` }, { type: "image", source: { type: "base64", media_type: image.mimeType, data: image.bytes.toString("base64") } });
         }
       }
     }
@@ -51,18 +51,11 @@ export const analyze = internalAction({ args: { extractionId: v.id("transactionE
     errorCode = "unavailable";
     const response = await requestReceipt(client, content);
     errorCode = "invalid_response";
-    const choice = response.choices[0];
-    let raw: unknown = null;
-    if (choice?.finish_reason === "stop" && choice.message.content) { try { raw = JSON.parse(choice.message.content); } catch { /* Preserve usage for malformed output too. */ } }
-    const parsed = parseExtractionResponse(raw);
-    const inputTokens = response.usage?.prompt_tokens ?? 0;
-    const outputTokens = response.usage?.completion_tokens ?? 0;
-    const inRate = Number(process.env.QWEN_INPUT_USD_PER_MILLION);
-    const outRate = Number(process.env.QWEN_OUTPUT_USD_PER_MILLION);
-    const costUsd = response.usage && Number.isFinite(inRate) && inRate >= 0 && Number.isFinite(outRate) && outRate >= 0 ? (inputTokens * inRate + outputTokens * outRate) / 1e6 : undefined;
+    const parsed = parseExtractionResponse(parseReceiptResponse(response));
+    const { inputTokens, outputTokens, costUsd } = receiptUsage(response, process.env.ANTHROPIC_INPUT_USD_PER_MILLION, process.env.ANTHROPIC_OUTPUT_USD_PER_MILLION);
     await ctx.runMutation(internal.transactionExtractions.finish, { extractionId, ...(parsed.success ? { result: normalizeExtraction(parsed.data, input.currency, input.tags, pages), pages } : { errorCode }), inputTokens, outputTokens, costUsd });
   } catch (error) {
-    if (error instanceof OpenAI.APIConnectionTimeoutError) errorCode = "timeout";
+    if (error instanceof Anthropic.APIConnectionTimeoutError) errorCode = "timeout";
     // Store stable codes only: provider messages may contain document content,
     // request bodies, signed URLs or credentials.
     await ctx.runMutation(internal.transactionExtractions.finish, { extractionId, errorCode });
