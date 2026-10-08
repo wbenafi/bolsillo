@@ -1,10 +1,9 @@
 # Lectura de comprobantes: producción
 
 La función permite extraer un movimiento desde imágenes, PDF o TXT mediante
-`gpt-6-luna` y el SDK oficial `openai`, con esfuerzo de razonamiento `low`.
+`claude-haiku-5-5` y el SDK oficial `@anthropic-ai/sdk`, con esfuerzo de razonamiento `low`.
 La persona revisa y guarda siempre. El proveedor
-recibe imágenes como data URLs base64 y texto mediante Responses API, con
-`store: false` para no almacenar la respuesta en OpenAI; los PDF siguen
+recibe bloques de imagen base64 y texto mediante Messages API; los PDF siguen
 renderizándose en el servidor. La respuesta usa JSON Schema derivado de Zod y
 se valida por campo antes de aplicarse.
 
@@ -14,19 +13,19 @@ Configurar estas variables en el deployment **Production de Convex**:
 
 | Variable | Propósito |
 | --- | --- |
-| `OPENAI_API_KEY` | Clave del proveedor usada por las acciones del backend |
-| `OPENAI_INPUT_USD_PER_MILLION` | Tarifa de entrada para estimar costos |
-| `OPENAI_OUTPUT_USD_PER_MILLION` | Tarifa de salida para estimar costos |
+| `ANTHROPIC_API_KEY` | Clave del proveedor usada por las acciones del backend |
+| `ANTHROPIC_INPUT_USD_PER_MILLION` | Tarifa de entrada para estimar costos |
+| `ANTHROPIC_OUTPUT_USD_PER_MILLION` | Tarifa de salida para estimar costos |
 
 No requieren variables nuevas en Vercel ni prefijos `NEXT_PUBLIC_`. Las tarifas
 son opcionales; sin ellas se registran análisis y tokens, pero no una estimación
 de costo. No se necesita `QWEN_BASE_URL`: el SDK utiliza el endpoint oficial
-de OpenAI. Las variables `QWEN_*` anteriores ya no se usan. Agregá la clave
-de OpenAI en cada deployment de Convex donde se habilite la función, antes
+de Anthropic. Las variables `QWEN_*` anteriores ya no se usan. Agregá la clave
+de Anthropic en cada deployment de Convex donde se habilite la función, antes
 de desplegar este cambio. No guardes la clave en el repositorio.
 
-El registro usa los totales de entrada y salida del proveedor: los tokens
-de caché y razonamiento ya están incluidos y no se suman por segunda vez.
+El registro suma los tokens de entrada, incluidos los de creación y lectura
+de caché cuando existan, y usa el total de salida, que incluye el razonamiento.
 La estimación usa las tarifas configuradas, sin ajustes de caché, y no
 sustituye la factura del proveedor.
 Se conserva el timeout de 30 segundos y no hay reintentos automáticos. El
@@ -60,10 +59,32 @@ Para detener nuevas lecturas, apagar el flag de IA de la cuenta. Se puede
 guardar manualmente un resultado ya obtenido. No quitar credenciales R2 mientras
 haya archivos o tareas de limpieza pendientes.
 
-## Evidencia histórica de Qwen (antes de migrar a OpenAI)
+## Validación real de Claude Haiku 5.5: 7 de octubre de 2026
+
+Se ejecutaron tres solicitudes secuenciales con comprobantes ficticios, usando
+el cliente del proyecto, el prompt y esquema de producción, la preparación real
+de imágenes/PDF y la validación/normalización de resultados. Todas devolvieron
+`end_turn`, JSON válido, monto, moneda y fecha correctos.
+
+| Muestra | Monto detectado | Duración de la solicitud |
+| --- | --- | --- |
+| TXT, bolsillo USD | USD 4.95 | 7.38 s |
+| PNG, bolsillo CRC | CRC 18500.50 | 3.09 s |
+| PDF de una página, bolsillo CRC | USD 27.40 | 3.18 s |
+
+El PDF activó correctamente la advertencia de moneda diferente, sin conversión
+a CRC. Los tokens de entrada/salida fueron 3295/424, 4360/410 y 4314/485.
+Pasaron además 193 tests en 22 archivos, lint, TypeScript y build.
+
+Los tiempos cubren solamente la petición al proveedor; no incluyen carga de
+archivos, renderizado PDF ni espera de la aplicación. Estas pruebas no recorren
+el navegador, las acciones de Convex ni el almacenamiento. Tres documentos
+sintéticos no constituyen una evaluación general de precisión o latencia.
+
+## Evidencia histórica de Qwen (antes de migrar a Anthropic)
 
 Las pruebas reales y los tiempos de esta sección corresponden a Qwen. No
-validan la precisión ni la latencia de GPT-6 Luna; se requiere una prueba con
+validan la precisión ni la latencia de Claude Haiku 5.5; se requiere una prueba con
 comprobantes representativos y la nueva clave antes de habilitarlo en producción.
 
 ### Evidencia de validación previa al PR
